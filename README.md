@@ -120,12 +120,6 @@ libNyx.UI.OpenShowcase()
 * Prints: `Loaded vX.Y.Z (server|client)`.
 * Fetches GitHub raw file `VERSION` and compares.
 * If the primary check fails, it can fall back to parsing a remote loader.
-* URLs used:
-
-  * Raw version: `https://raw.githubusercontent.com/maryblackfild/libnyx/main/VERSION`
-  * Project home: `https://github.com/maryblackfild/libnyx`
-
-You only need to **commit a single `VERSION` file** at repo root (already present).
 
 ---
 
