@@ -1,14 +1,13 @@
 -- libNyx by MaryBlackfild
 -- JOIN DISCORD: https://discord.gg/rUEEz4mfXw
-
 libNyx = libNyx or {}
 
-libNyx.Version = libNyx.Version or "1.6.0"
+libNyx.Version = libNyx.Version or "0.0.0"
 
 libNyx.Update = libNyx.Update or {
     enabled = true,
-    url_raw_version = "https://raw.githubusercontent.com/YOUR_GH_ORG/YOUR_REPO/main/VERSION",
-    homepage = "https://github.com/YOUR_GH_ORG/YOUR_REPO",
+    url_raw_version = "https://raw.githubusercontent.com/maryblackfild/libnyx/main/VERSION",
+    homepage = "https://github.com/maryblackfild/libnyx",
     cache_ttl_sec = 1800,
     last_remote = nil,
     last_checked_at = 0,
