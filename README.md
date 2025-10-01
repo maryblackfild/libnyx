@@ -6,9 +6,9 @@ Modern, animated UI components for **Garry’s Mod** written in Lua.
 Built by **Nyx Team**, authored by **MaryBlackfild**. This repository is a **demo version** showcasing the library’s look, feel, and API.
 
 [![Discord](https://img.shields.io/badge/Discord-Join%20us-5865F2?logo=discord\&logoColor=white)](https://discord.gg/rUEEz4mfXw)
-[![Status](https://img.shields.io/badge/state-demo-blueviolet)](#-status--roadmap)
+[![State](https://img.shields.io/badge/state-demo-blueviolet)](#-status--roadmap)
 [![Platform](https://img.shields.io/badge/platform-Garry's%20Mod-13a5ec)](#requirements)
-[![License](https://img.shields.io/badge/license-TBD-lightgrey)](#license)
+[![License: MIT](https://img.shields.io/badge/license-MIT-brightgreen.svg)](#license)
 
 ---
 
@@ -22,26 +22,25 @@ Built by **Nyx Team**, authored by **MaryBlackfild**. This repository is a **dem
 * [Components](#components)
 * [Styling & scale](#styling--scale)
 * [Utilities & effects](#utilities--effects)
+* [RNDX dependency](#rndx-dependency)
 * [Commands, ConVars & paths](#commands-convars--paths)
 * [Project layout](#project-layout)
 * [Status & roadmap](#-status--roadmap)
 * [Contributing](#contributing)
 * [Author & credits](#author--credits)
+* [Requirements](#requirements)
 * [License](#license)
 
 ---
 
 ## Highlights
 
-* 🎛️ **Rich component set**: buttons (multiple variants), checkboxes/switches/radios, sliders, dropdowns, lists, tabs, category cards, inventory cells, search box.
+* 🎛️ **Rich component set**: buttons, checkboxes/switches/radios, sliders, dropdowns, lists, tabs, category cards, inventory cells, search box.
 * 🧊 **“Glass” aesthetic** with dynamic blur, soft strokes, and gradients.
 * 🔄 **Animated** open/close transitions, ripples, hover states, drag & drop, and focus accents.
-* 🖱️ **Inventory cells** with **hover info boxes** (title, description, tags) and **drag-to-swap**.
 * 🧭 **Tabs** with animated selection indicator.
 * 🧷 **Smooth scrolling** overlay for any scroll panel.
-* 🔍 **Search** with RU/EN language hint and clear button.
-* 🔊 Sound UX: hover/click sounds and gentle redirection of default UI sounds.
-* 🔔 **Auto-loader** that prints **Loaded vX** and checks **GitHub VERSION** to tell you if you’re **up-to-date**.
+* 🔔 **Auto-loader** prints **Loaded vX** and checks **GitHub VERSION** to tell you if you’re **up-to-date**.
 
 > This repository is a **showcase** build. APIs may evolve.
 
@@ -55,23 +54,13 @@ Open the interactive showcase in-game:
 libnyx_ui_showcase
 ```
 
-The showcase features two tabs with examples of all components, layouts, and states.
-
 ---
 
 ## Installation
 
 1. Copy the `lua/` folder into your addon (or `garrysmod/lua/` during development).
-
-2. Make sure the **autorun** file exists:
-
-   ```
-   lua/autorun/libnyx.lua
-   ```
-
-   It loads the library, prints the loaded version, and performs the update check.
-
-3. Start your game/server and watch the console for:
+2. Ensure the autorun entry exists at `lua/autorun/libnyx.lua` (it loads the library and performs the update check).
+3. Start your game/server and watch the console:
 
 ```
 [libNyx] Loaded vX.Y.Z (server|client)
@@ -79,7 +68,7 @@ The showcase features two tabs with examples of all components, layouts, and sta
 [libNyx] Up-to-date ✓ (latest: X.Y.Z)
 ```
 
-If you are behind:
+If outdated, you’ll see:
 
 ```
 [libNyx] Update available ✱ installed X.Y.Z → latest A.B.C
@@ -92,8 +81,7 @@ If you are behind:
 
 ```lua
 -- Create a frameless “glass” window
-local W, H = 960, 640
-local frame = libNyx.UI.CreateFrame({ w = W, h = H, title = "libNyx UI" })
+local frame = libNyx.UI.CreateFrame({ w = 960, h = 640, title = "libNyx UI" })
 
 -- Add a button
 local btn = libNyx.UI.Components.CreateButton(frame, "Click me", {
@@ -102,7 +90,7 @@ local btn = libNyx.UI.Components.CreateButton(frame, "Click me", {
 })
 btn:Dock(TOP); btn:DockMargin(16,16,16,0)
 
--- Show the demo window (or just run the console command)
+-- Or just open the demo window:
 libNyx.UI.OpenShowcase()
 ```
 
@@ -114,14 +102,10 @@ File: `lua/autorun/libnyx.lua`
 
 * Reads local `VERSION` (fallback `0.0.0`).
 * Prints: `Loaded vX.Y.Z (server|client)`.
-* Fetches GitHub raw file `VERSION` and compares.
-* If the primary check fails, it optionally falls back to parsing a remote loader.
-* URLs used:
+* Compares against GitHub raw file:
 
   * Raw version: `https://raw.githubusercontent.com/maryblackfild/libnyx/main/VERSION`
   * Project home: `https://github.com/maryblackfild/libnyx`
-
-You only need to **commit a single `VERSION` file** at repo root (already present).
 
 ---
 
@@ -129,111 +113,63 @@ You only need to **commit a single `VERSION` file** at repo root (already presen
 
 Namespace: `libNyx.UI.Components`
 
-* **CreateButton(parent, text, opts)**
-  Variants: `primary`, `soft`, `ghost`, `gradient`, `primary_center`, `center_duo`
-  Supports icons, ripple effects (filled/ring), and center gradient styles.
-
-* **CreateCheckbox(parent, opts)**
-  Variants: `switch`, `knob`, `radio`
-  Grouped radios supported via `SetGroup(name)`. `onChange(checked, self)` callback.
-
-* **CreateSlider(parent, opts)**
-  Smooth value animation, counter bubble, hover/drag emphasis. `min`, `max`, `decimals`, `value`, `tint`.
-
-* **CreateDropdown(parent, opts)**
-  Glass menu with animated reveal, optional icons for options, gradient hover, `onSelect(value)`.
-
-* **CreateList(parent, opts)**
-  Rows with icons, right-side text, label “chips”, selection handling, ripple on hover/click.
-
-* **CreateTabs(parent, opts)**
-  Items with icon/label, animated indicator that stretches on hover, `onChange(id)`.
-
-* **CreateCategoryCard(parent, opts)**
-  `vibrant` and `glass` variants with dual gradients, animated icon overlay and text.
-
-* **CreateVBox(parent, opts)**
-  Small display cards: `center_gradient`, `vertical_gradient`, `sunburst`, `model`.
-  Optional `model` preview with subtle camera animation on hover.
-
-* **CreateCell(parent, opts)** and **CreateInteractiveCell(parent, opts)**
-  Base square cell + interactive behavior:
-
-  * `SetItemIcon(material, size, info)` where `info = { title, desc, tags = { "tag" or {text=..., color=...} } }`
-  * `SetItemModel(path)` or `ClearItem()`
-  * Interactive cells support **drag & drop** with drop target highlight.
-
-* **CreateSearchBox(parent, opts)**
-  Placeholder, debounce, clear button, `onChange`, `onSubmit`, `onClear`.
-  Shows RU/EN indicator while focused based on input.
+* **CreateButton(parent, text, opts)** — variants: `primary`, `soft`, `ghost`, `gradient`, `primary_center`, `center_duo` (ripples, icons, gradients).
+* **CreateCheckbox(parent, opts)** — `switch`, `knob`, `radio` (+ radio grouping).
+* **CreateSlider(parent, opts)** — smooth value animation, counter bubble, hover/drag emphasis.
+* **CreateDropdown(parent, opts)** — glass menu with reveal animation, icons, `onSelect`.
+* **CreateList(parent, opts)** — rows with icons, label “chips”, right-side text, selection + ripples.
+* **CreateTabs(parent, opts)** — items with icon/label, animated indicator, `onChange`.
+* **CreateCategoryCard(parent, opts)** — `vibrant`/`glass` variants with dual gradients.
+* **CreateVBox(parent, opts)** — `center_gradient`, `vertical_gradient`, `sunburst`, `model` (with subtle camera animation).
+* **CreateCell / CreateInteractiveCell** — item cells with **hover info box** and **drag & drop**.
 
 ---
 
 ## Styling & scale
 
-Namespace: `libNyx.UI.Style`
+* Adaptive scale (1080p baseline) with override:
 
-Key colors & metrics:
-
-* `bgColor`, `panelColor`, `cardColor`, `accentColor`, `textColor`, `glassFill`, `glassStroke`
-* `radius`, `padding`, `iconSize`, `btnHeight`, `rowHeight`, `strokeWidth`
-* Gradient alphas for rows, chips, buttons.
-
-**Adaptive scale** is computed from screen height (1080p baseline) with manual override.
-
-ConVar:
-
-```bash
-cl_libnyx_ui_scale 0   # 0 = auto, allowed range 0.50 … 2.00
-```
-
-Fonts are auto-generated and cached (Manrope → Tahoma fallback).
+  ```
+  cl_libnyx_ui_scale 0   # 0 = auto, 0.50..2.00 allowed
+  ```
+* Centralized colors/metrics in `libNyx.UI.Style`.
+* Auto-generated font cache (Manrope → Tahoma fallback).
 
 ---
 
 ## Utilities & effects
 
-* `libNyx.UI.Draw.Glass(x,y,w,h, {radius, fill, stroke, strokeColor, blurIntensity})`
-  Core glass/blur renderer used across components.
+* `libNyx.UI.Draw.Glass(...)` / `Draw.Panel(...)` helpers (blur, strokes, gradients).
+* Drag/drop overlay (`PostRenderVGUI`) with pickup/drop animation & target highlight.
+* Ripples (`libNyx.UI.SetRippleStyle("fill"|"ring"|1|2)`).
+* Smooth scrolling (`libNyx.UI.SmoothScroll.*`).
+* Animated window frame (`libNyx.UI.CreateFrame`) with open/close easing and content alpha gating.
+* SFX: hover/click with subtle redirection of default UI sounds.
 
-* `libNyx.UI.Draw.Panel(...)`
-  Rounded, optional stroke/shadow/gradient helper.
+---
 
-* **Drag & drop overlay**
-  Animated pickup/drop with target highlight (`PostRenderVGUI` overlay).
-  Helpers: `libNyx.UI.StartDragIcon(...)`, `libNyx.UI.StopDragIcon(target)`.
+## RNDX dependency
 
-* **Ripples**
-  Global style `libNyx.UI.SetRippleStyle("fill"|"ring"|1|2)`.
+This UI toolkit uses the **RNDX** auxiliary rendering library for fast rounded geometry, gradients, and blur composition.
 
-* **Smooth scrolling**
-  `libNyx.UI.SmoothScroll.ApplyToScrollPanel(panel, opts)` and
-  `libNyx.UI.SmoothScroll.InstallUnder(root, opts)` to auto-install under a tree.
+* RNDX project: **[https://github.com/Srlion/RNDX](https://github.com/Srlion/RNDX)**
+* libNyx integrates RNDX through `lua/libnyx/lib/rndx.lua` and builds the glass & effects stack on top of it.
 
-* **FlyIcon**
-  `libNyx.UI.FlyIcon(material, sx, sy, ex, ey, size, dur, cb)` little icon animation.
-
-* **CreateFrame(opts)**
-  Animated open/close (back/exp ease), content alpha gating, glass background and header title.
-
-* **Sounds**
-  `libNyx.UI.Sounds.hover` / `click` with subtle redirection from common default sounds.
-
-> The low-level drawing/effects are backed by `rndx.lua` (includes an internal “LENS” shader package).
+> Huge thanks to RNDX for the performant drawing primitives that make the “glass” look possible. 🧊
 
 ---
 
 ## Commands, ConVars & paths
 
 * **Command**: `libnyx_ui_showcase` — open the demo window.
-* **ConVar**: `cl_libnyx_ui_scale` — UI scale (see above).
-* **Important paths**
+* **ConVar**: `cl_libnyx_ui_scale` — UI scale.
+* **Paths**
 
   * Autorun loader: `lua/autorun/libnyx.lua`
   * Core UI: `lua/libnyx/lib/libnyx_components.lua`
-  * Demo window: `lua/libnyx/lib/libnyx_maindemo.lua`
-  * RNDX core & shaders: `lua/libnyx/lib/rndx.lua`
-  * Version: `VERSION` (repo root)
+  * Demo: `lua/libnyx/lib/libnyx_maindemo.lua`
+  * RNDX core: `lua/libnyx/lib/rndx.lua`
+  * Version file: `VERSION`
 
 ---
 
@@ -258,21 +194,19 @@ libnyx/
 This is a **demo** and API **may change**. Planned:
 
 * More components (tooltips, progress, toasts).
-* Theme packs and light mode.
+* Theme packs / light mode.
 * Extended docs with GIFs & examples.
-* Public hooks and event bus.
+* Public hooks & events.
 
-Have ideas or found a bug? → **[Join the Discord](https://discord.gg/rUEEz4mfXw)**.
+Ideas or bugs? → **[Join the Discord](https://discord.gg/rUEEz4mfXw)**.
 
 ---
 
 ## Contributing
 
-1. Fork the repo and create a feature branch.
+1. Fork and create a feature branch.
 2. Keep code style consistent (Lua 5.1 for GMod).
-3. Submit a PR describing your change & screenshots where useful.
-
-Bug reports and feature requests are welcome in **Issues** or on **Discord**.
+3. Submit a PR with a clear description and screenshots where helpful.
 
 ---
 
@@ -289,13 +223,11 @@ Thanks to everyone testing the demo and giving feedback ❤️
 ## Requirements
 
 * Garry’s Mod (x86/x64)
-* Client for UI components; Server required for shipping files via `AddCSLuaFile`.
+* Client for UI; Server used to ship files via `AddCSLuaFile`.
 
 ---
 
 ## License
 
-License is currently **TBD**. Until one is added, please contact the author (Discord) for usage in commercial projects or redistribution.
-
----
-
+This project is licensed under the **MIT License**.
+See the [LICENSE](LICENSE) file for details.
