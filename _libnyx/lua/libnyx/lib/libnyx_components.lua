@@ -1233,6 +1233,7 @@ function Components.CreateSlider(parent, opts)
     sld._dragging    = false
     sld._lastDrawKey = ""
     if IsValid(sld.TextArea) then sld.TextArea:SetVisible(false) end
+
     local counterBaseSize = libNyx.UI.Scale(18)
     local function fmtnum(v, d)
         if (d or 0) <= 0 then return tostring(math.Round(v)) end
@@ -1246,6 +1247,26 @@ function Components.CreateSlider(parent, opts)
         local sz = math.Clamp(math.floor(counterBaseSize * scale), 10, 200)
         return libNyx.UI.Font(sz)
     end
+
+    function sld:PerformLayout(w, h)
+        if IsValid(self.Label) then
+            self.Label:SetWide(0)
+            self.Label:Hide()
+        end
+        local ta = self.TextArea
+        local tw = math.max(libNyx.UI.Scale(50), self._taWide or libNyx.UI.Scale(60))
+        if IsValid(ta) then
+            ta:SetWide(tw)
+            ta:SetPos(w - tw, 0)
+            ta:SetTall(h)
+            ta:SetVisible(false)
+        end
+        if IsValid(self.Slider) then
+            self.Slider:SetPos(0, 0)
+            self.Slider:SetSize(w - tw, h)
+        end
+    end
+
     function sld:Think()
         self._lerpVal = Lerp(FrameTime()*12, self._lerpVal or self:GetValue(), self:GetValue())
         local d = self:GetDecimals()
@@ -1270,14 +1291,14 @@ function Components.CreateSlider(parent, opts)
         self._pulse = expApproach(self._pulse, 0, 8)
         if IsValid(self.TextArea) then self.TextArea:SetText(fmtnum(self:GetValue(), d)) end
     end
+
     function sld.Slider:Paint(w, h)
         local th = libNyx.UI.Scale(6)
         local y  = h*0.5 - th/2
-        local rightGap = (IsValid(self:GetParent()) and self:GetParent()._taWide or libNyx.UI.Scale(60))
-        local maxW     = math.max(th, w - rightGap)
+        local maxW = math.max(th, w)
         libNyx.UI.Draw.Panel(0, y, maxW, th, {radius = th/2, color = Color(30,34,42,130 + math.floor(30*sld._knobA)), glass = true})
         local frac = self.GetSlideX and (self:GetSlideX() or 0) or 0
-        local fillW = math.max(th, math.min(maxW, (w - rightGap) * frac))
+        local fillW = math.max(th, math.min(maxW, maxW * frac))
         if not MAT_GRADIENT_L:IsError() then
             local tint = sld._tint
             local gcol = Color(tint.r, tint.g, tint.b, 170)
@@ -1286,6 +1307,7 @@ function Components.CreateSlider(parent, opts)
             draw.RoundedBox(th/2, 0, y, fillW, th, sld._tint)
         end
     end
+
     local oldMP = sld.Slider.Knob.OnMousePressed
     function sld.Slider.Knob:OnMousePressed(mc)
         sld._dragging = true
@@ -1296,6 +1318,7 @@ function Components.CreateSlider(parent, opts)
         sld._dragging = false
         if oldMR then oldMR(self, mc) else pcall(function() self:GetParent():OnMouseReleased(mc) end) end
     end
+
     function sld.Slider.Knob:Paint(w,h)
         local base = libNyx.UI.Scale(16)
         local size = math.floor(base * (1 + 0.26 * sld._knobA))
@@ -1303,11 +1326,13 @@ function Components.CreateSlider(parent, opts)
         local y = -size/2 + h/2
         libNyx.UI.Draw.Panel(x, y, size, size, {radius = size/2, color = Color(240,240,255, math.floor(180 + 50*sld._knobA)), glass = true, stroke = true})
     end
+
     function sld:PaintOver(w,h)
         local scale = 1 + 0.40 * self._pulse
         local fnt = counterFont(scale)
         draw.SimpleText(self._drawText or "", fnt, w - libNyx.UI.Scale(8), h/2, Style.textColor, TEXT_ALIGN_RIGHT, TEXT_ALIGN_CENTER)
     end
+
     return sld
 end
 
@@ -2312,3 +2337,4 @@ end
 
 -- libNyx by MaryBlackfild
 -- JOIN DISCORD: https://discord.gg/rUEEz4mfXw
+
