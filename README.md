@@ -203,7 +203,7 @@ libnyx/
 This project uses the auxiliary rendering/drawing library **RNDX** by Srlion:
 ➡️ [https://github.com/Srlion/RNDX](https://github.com/Srlion/RNDX)
 
-The demo includes an integrated `rndx.lua` and shader assets tailored for libNyx effects.
+The demo includes an integrated `rndx.lua` and new exclusive Liquid Glass shader by MaryBlackfild
 
 ---
 
