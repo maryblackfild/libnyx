@@ -7,7 +7,7 @@ local function read_local_version()
     local p1,p2 = "VERSION","libnyx/VERSION"
     local v = file.Exists(p1,"GAME") and file.Read(p1,"GAME") or file.Exists(p1,"LUA") and file.Read(p1,"LUA") or file.Exists(p2,"LUA") and file.Read(p2,"LUA") or file.Exists(p2,"GAME") and file.Read(p2,"GAME") or ""
     v = tostring(v or ""):gsub("[\r\n]","")
-    if v == "" then v = "0.6.7" end
+    if v == "" then v = "0.0.0" end
     return v
 end
 
@@ -54,6 +54,7 @@ end
 if SERVER then
     AddCSLuaFile("libnyx/lib/rndx.lua")
     AddCSLuaFile("libnyx/lib/libnyx_components.lua")
+    AddCSLuaFile("libnyx/lib/libnyx_liquidglass.lua")
     AddCSLuaFile("libnyx/lib/libnyx_maindemo.lua")
     include("libnyx/lib/rndx.lua")
     timer.Simple(0, function() say("info",("Loaded v%s (server)"):format(libNyx.Version)) do_update_check() end)
@@ -64,6 +65,7 @@ libNyx.rndx = libNyx.rndx or include("libnyx/lib/rndx.lua")
 _G.RNDX     = _G.RNDX     or libNyx.rndx
 include("libnyx/lib/libnyx_components.lua")
 include("libnyx/lib/libnyx_maindemo.lua")
+include("libnyx/lib/libnyx_liquidglass.lua")
 timer.Simple(0, function() say("info",("Loaded v%s (client)"):format(libNyx.Version)) do_update_check() end)
 
 
