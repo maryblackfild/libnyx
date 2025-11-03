@@ -1,255 +1,274 @@
+Here’s my plan and the finished README.
+
+# Plan (for myself)
+
+* Goal: refresh README.md to highlight the new **Liquid Glass** module and demo, place the two GIFs and two PNGs near the top, and document usage.
+* Structure:
+
+  1. Title + short tagline
+  2. Hero GIF (libnyx_liquid.gif), then a compact image row (libnyx.png + liquid.png). A second demo GIF (libnyx_demo.gif) appears in a “Demos” section.
+  3. Features list (Liquid Glass, UI Components, Global Skins, Smooth Scroll, Drag-n-Drop Cells, Sounds, Version check)
+  4. Installation (addons placement), file layout, auto-loader behavior, CVars/console command
+  5. Quick start (open the Liquid Glass builder, minimal code usage)
+  6. Liquid Glass API quick reference (the chainable methods you exposed)
+  7. UI kit highlights (Buttons, Tabs, Slider, Dropdown, List, Search, CategoryCard)
+  8. Global skins (menu + notifications)
+  9. Demos (link to command and function)
+  10. Troubleshooting & FAQ
+  11. Changelog v0.7.0
+  12. Credits/Links
+* Constraints: keep names as in your library (libNyx, RNDX), no renames, include the four media assets close to the top, English prose, ready-to-use.
 
 ---
 
-# libNyx UI — demo edition ✨
+# README.md
 
-Modern, animated UI components for **Garry’s Mod** written in Lua.
-Built by **Nyx Team**, authored by **MaryBlackfild**. This repository is a **demo version** showcasing the library’s look, feel, and API.
+# libNyx — Modern UI kit for Garry’s Mod with Liquid Glass
 
-[![Discord](https://img.shields.io/badge/Discord-Join%20us-5865F2?logo=discord\&logoColor=white)](https://discord.gg/rUEEz4mfXw)
-[![Status](https://img.shields.io/badge/state-demo-blueviolet)](#-status--roadmap)
-[![Platform](https://img.shields.io/badge/platform-Garry's%20Mod-13a5ec)](#requirements)
-[![License: MIT](https://img.shields.io/badge/license-MIT-brightgreen)](#license)
-[![Dependency](https://img.shields.io/badge/uses-RNDX-0aa3d9)](#dependencies)
+<p align="center">
+  <img src="libnyx_liquid.gif" alt="libNyx Liquid Glass demo" />
+</p>
 
----
+<p align="center">
+  <img src="libnyx.png" alt="libNyx logo" height="120" />
+  &nbsp;&nbsp;&nbsp;
+  <img src="liquid.png" alt="Liquid Glass mark" height="120" />
+</p>
 
-## Table of contents
-
-* [Highlights](#highlights)
-* [Screens & demo](#screens--demo)
-* [Installation](#installation)
-* [Quick start](#quick-start)
-* [Auto-loader & version check](#auto-loader--version-check)
-* [Components](#components)
-* [Styling & scale](#styling--scale)
-* [Utilities & effects](#utilities--effects)
-* [Commands, ConVars & paths](#commands-convars--paths)
-* [Project layout](#project-layout)
-* [Dependencies](#dependencies)
-* [Status & roadmap](#-status--roadmap)
-* [Contributing](#contributing)
-* [Author & credits](#author--credits)
-* [Requirements](#requirements)
-* [License](#license)
+A lightweight, modern UI framework for Garry’s Mod focusing on glassmorphism, smooth motion, gradient accents, and consistent design tokens. Powered by **RNDX** rendering utilities and ready for production UIs.
 
 ---
 
 ## Highlights
 
-* 🎛️ **Rich component set**: buttons, switches/radios, sliders, dropdowns, lists, tabs, category cards, inventory cells, search box.
-* 🧊 **“Glass” aesthetic** with dynamic blur, soft strokes, and gradients.
-* 🔄 **Animated** open/close transitions, ripples, hover states, drag & drop, and focus accents.
-* 🖱️ **Inventory cells** with **hover info boxes** (title, description, tags) and **drag-to-swap**.
-* 🧭 **Tabs** with animated selection indicator.
-* 🧷 **Smooth scrolling** overlay for any scroll panel.
-* 🔍 **Search** with RU/EN language hint and clear button.
-* 🔊 Sound UX: hover/click sounds and gentle redirection of default UI sounds.
-* 🔔 **Auto-loader** that prints **Loaded vX** and checks **GitHub VERSION** to tell you if you’re **up-to-date**.
+* **Liquid Glass (new in v0.7.0)**
+  iOS-style translucent glass with real refraction & tinting, shimmer, grain, edge smoothing, shadows, adjustable blur radius, and runtime tuning UI. Includes a builder that exports ready-to-paste code.
 
-> This repository is a **showcase** build. APIs may evolve.
+* **UI Components**
+  Buttons (primary/ghost/duo/gradient), Tabs with animated indicator, Slider with counter, Dropdown, Checkbox/Switch/Radio, Lists, SearchBox, Category Cards, smooth drag-n-drop item cells, and more.
 
----
+* **Global Skins**
+  Glassy **DMenu** theme and **notifications** skin that seamlessly replace vanilla `notification.AddLegacy` (and gamemode `AddNotify`), with gentle motion and Liquid-style feel.
 
-## Screens & demo
+* **Smooth Scroll**
+  Drop-in inertia and styled scrollbars for any `DScrollPanel`.
 
-Open the interactive showcase in-game:
+* **Design Tokens**
+  Unified scale, fonts, radii, paddings, stroke/gradient alphas, and accent color.
 
-```bash
-libnyx_ui_showcase
-```
-
-The showcase features two tabs with examples of all components, layouts, and states.
+* **Version Check**
+  Auto-checks GitHub raw for new `VERSION` and notifies in console.
 
 ---
 
 ## Installation
 
-1. Copy the `lua/` folder into your addon (or `garrysmod/lua/` during development).
+1. Place the repo as an addon:
+   `garrysmod/addons/libnyx/`
+2. Ensure the following client files are present (shipped by the addon):
 
-2. Ensure the **autorun** loader is present:
+   * `lua/autorun/libnyx.lua` (loader)
+   * `lua/libnyx/VERSION`
+   * `lua/libnyx/lib/rndx.lua`
+   * `lua/libnyx/lib/libnyx_components.lua`
+   * `lua/libnyx/lib/libnyx_liquidglass.lua`
+   * `lua/libnyx/lib/libnyx_maindemo.lua`
+3. Start the game; the loader initializes and reports version in console.
 
-   ```
-   lua/autorun/libnyx.lua
-   ```
-
-   It loads the library, prints the loaded version, and performs the update check.
-
-3. Start your game/server and watch the console:
-
-```
-[libNyx] Loaded vX.Y.Z (server|client)
-[libNyx] Checking for updates…
-[libNyx] Up-to-date ✓ (latest: X.Y.Z)
-```
-
-If you are behind:
+### File layout (core)
 
 ```
-[libNyx] Update available ✱ installed X.Y.Z → latest A.B.C
-[libNyx] Get it: https://github.com/maryblackfild/libnyx
+lua/
+  autorun/
+    libnyx.lua
+  libnyx/
+    VERSION
+    lib/
+      rndx.lua
+      libnyx_components.lua
+      libnyx_liquidglass.lua
+      libnyx_maindemo.lua
 ```
+
+The loader:
+
+* Pre-creates font aliases (`libNyx.UI.*`)
+* Includes RNDX and all libNyx modules once
+* Installs global menu & notification skins
+* Performs a non-blocking update check
 
 ---
 
-## Quick start
+## Quick Start
+
+### Open the Liquid Glass builder (demo UI)
+
+Console:
+
+```
+libnyx_liquid
+```
+
+Adjust sliders, switch shapes, toggle shadow, then press **Copy** — you’ll get a formatted call chain you can paste into your HUD/VGUI paint.
+
+### Minimal usage in your panel/HUD
 
 ```lua
--- Create a frameless “glass” window
-local W, H = 960, 640
-local frame = libNyx.UI.CreateFrame({ w = W, h = H, title = "libNyx UI" })
+local R = RNDX()
+-- backdrop blur (optional)
+R:Rect(x, y, w, h):Rad(32):Flags(RNDX.SHAPE_IOS):Blur(1):Draw()
 
--- Add a button
-local btn = libNyx.UI.Components.CreateButton(frame, "Click me", {
-  variant = "primary",
-  onClick = function() chat.AddText(Color(0,255,0), "[libNyx] Hello!") end
+-- liquid glass box
+R:Liquid(x, y, w, h)
+  :Rad(32)
+  :Color(255,255,255,255)
+  :Tint(255,255,255)
+  :TintStrength(0.08)
+  :Saturation(1.06)
+  :GlassBlur(0.02, 0.40)
+  :EdgeSmooth(2.0)
+  :Strength(0.014)
+  :Speed(0.35)
+  :Shimmer(22.0)
+  :Grain(0.005)
+  :Alpha(0.95)
+  :Flags(RNDX.SHAPE_IOS)
+  :Shadow(40, 56)   -- optional
+  :Draw()
+```
+
+**Shapes:** `RNDX.SHAPE_IOS`, `RNDX.SHAPE_FIGMA`, `RNDX.SHAPE_CIRCLE`
+**Tip:** Circle sets radius = min(w,h)/2 in the builder export.
+
+---
+
+## Liquid Glass — Builder & API
+
+### Builder UI (what it controls)
+
+* Layout: `size`, `rad`, shape (`iOS`, `Figma`, `Circle`)
+* Visuals: `strength`, `speed`, `sat`, `Tint RGB`, `tints`
+* Blur & Edge: `GlassBlur(all, radius)`, `EdgeSmooth(px)`
+* FX: `Shimmer`, `Grain`, `Alpha`
+* Shadow: `Enable`, `Spread`, `Intensity`
+* Drag: click-and-hold to move, clamped in-screen (outside the left nav)
+
+### Console & CVars
+
+* **Open builder:** `libnyx_liquid`
+* **Scale all libNyx UI:** `cl_libnyx_ui_scale` (0 = auto)
+* **Builder box default size:** `libnyx_liquid_size`
+
+### Method cheat sheet
+
+```
+RNDX():Liquid(x,y,w,h)
+  :Rad(r)                      -- or :Radii(...) via Rect if needed
+  :Color(r,g,b,a)              -- base “glass” color for composition
+  :Tint(r,g,b) :TintStrength(s)
+  :Saturation(s)
+  :GlassBlur(amount, radius)   -- two-stage blur controller
+  :EdgeSmooth(px)              -- AA-like smoothing on edges
+  :Strength(k)                 -- refraction strength
+  :Speed(v)                    -- shimmer motion speed
+  :Shimmer(v)                  -- light streak sparkles
+  :Grain(v)                    -- fine film grain
+  :Alpha(a)                    -- final composited alpha
+  :Flags(RNDX.SHAPE_*)
+  :Shadow(spread, intensity)   -- optional soft drop
+  :Draw()
+```
+
+---
+
+## UI Components (selected)
+
+* **Buttons**: `primary`, `primary_center`, `ghost`, `gradient`, `center_duo`
+* **Tabs**: animated rail indicator, ripple, icons
+* **Slider**: inertial knob, live counter, wheel & drag
+* **Dropdown**: glass popup with smooth open, icons per option
+* **Checkbox / Switch / Radio**: grouped radios, tinted tracks, glass knobs
+* **List**: gradient accent chips, selection/hover states
+* **SearchBox**: inline clear, language hint, gradient accent
+* **CategoryCard**: vibrant / glass variants, large icon, subtle motion
+* **Interactive Cell**: drag-n-drop with overlay, auto-highlight target
+
+### Smooth Scroll
+
+Apply to any `DScrollPanel`:
+
+```lua
+libNyx.UI.SmoothScroll.ApplyToScrollPanel(scrollPanel, {
+  step    = libNyx.UI.Scale(90),
+  speed   = 18,
+  fadeHold= 0.9,
+  width   = libNyx.UI.Scale(12),
 })
-btn:Dock(TOP); btn:DockMargin(16,16,16,0)
-
--- Show the demo window (or just run the console command)
-libNyx.UI.OpenShowcase()
 ```
 
----
+Or install under a root panel:
 
-## Auto-loader & version check
-
-**File:** `lua/autorun/libnyx.lua`
-
-* Reads local `VERSION` (fallback `0.0.0`).
-* Prints: `Loaded vX.Y.Z (server|client)`.
-* Fetches GitHub raw file `VERSION` and compares.
-* If the primary check fails, it can fall back to parsing a remote loader.
-
----
-
-## Components
-
-Namespace: `libNyx.UI.Components`
-
-* **CreateButton(parent, text, opts)** – variants: `primary`, `soft`, `ghost`, `gradient`, `primary_center`, `center_duo`, with icons & ripple effects.
-* **CreateCheckbox(parent, opts)** – variants: `switch`, `knob`, `radio` (with grouping).
-* **CreateSlider(parent, opts)** – smooth value animation, counter bubble, hover/drag emphasis.
-* **CreateDropdown(parent, opts)** – glass menu with animated reveal, icons, and `onSelect(value)`.
-* **CreateList(parent, opts)** – rows with icons, right text, label “chips”, selection & ripples.
-* **CreateTabs(parent, opts)** – items with icon/label, animated indicator, `onChange(id)`.
-* **CreateCategoryCard(parent, opts)** – `vibrant` / `glass` variants with dual gradients.
-* **CreateVBox(parent, opts)** – `center_gradient`, `vertical_gradient`, `sunburst`, `model` (with subtle camera animation).
-* **CreateCell / CreateInteractiveCell** – inventory cells with info box & drag-drop support.
-* **CreateSearchBox(parent, opts)** – placeholder, debounce, clear button, RU/EN indicator.
-
----
-
-## Styling & scale
-
-Namespace: `libNyx.UI.Style`
-
-* Colors: `bgColor`, `panelColor`, `cardColor`, `accentColor`, `textColor`, `glassFill`, `glassStroke`.
-* Metrics: `radius`, `padding`, `iconSize`, `btnHeight`, `rowHeight`, `strokeWidth`.
-* Adaptive scale from screen height (1080p baseline); manual override via ConVar:
-
-```bash
-cl_libnyx_ui_scale 0   # 0 = auto, range 0.50 … 2.00
+```lua
+libNyx.UI.SmoothScroll.InstallUnder(rootPanel)
 ```
 
-Fonts are auto-generated and cached (Manrope → Tahoma fallback).
+### Global Skins
+
+* **Menu Skin** (DMenu / DMenuOption / Divider):
+  `libNyx.UI.InstallGlobalMenuSkin()`
+* **Notifications**: Intercepts `notification.AddLegacy`, `AddProgress`, and gamemode `AddNotify` to render glass toasts.
+  `libNyx.UI.InstallGlobalNotificationSkin()`
 
 ---
 
-## Utilities & effects
+## Demos
 
-* **libNyx.UI.Draw.Glass** – core glass/blur renderer with radius, fill, stroke, and blur intensity.
-* **libNyx.UI.Draw.Panel** – rounded box helper with optional stroke/shadow/gradient.
-* **CreateFrame** – animated open/close (easing), content alpha gating, glass background/title.
-* **Ripples** – global `libNyx.UI.SetRippleStyle("fill"|"ring"|1|2)`.
-* **Drag & drop overlay** – animated pickup/drop with target highlight (`PostRenderVGUI` overlay).
-* **Smooth scrolling** – `libNyx.UI.SmoothScroll.ApplyToScrollPanel` / `InstallUnder`.
-* **FlyIcon** – tiny icon travel animation for delightful micro-interactions.
+<p align="center">
+  <img src="libnyx_demo.gif" alt="libNyx UI demo" />
+</p>
 
----
+* **Liquid Glass builder:** `libnyx_liquid`
+* **Showcase panel:** call `libNyx.UI.OpenShowcase()` from console:
 
-## Commands, ConVars & paths
-
-* **Command**: `libnyx_ui_showcase` — open the demo window.
-* **ConVar**: `cl_libnyx_ui_scale` — UI scale.
-* **Paths**
-
-  * Autorun loader: `lua/autorun/libnyx.lua`
-  * Core UI: `lua/libnyx/lib/libnyx_components.lua`
-  * Demo: `lua/libnyx/lib/libnyx_maindemo.lua`
-  * RNDX core: `lua/libnyx/lib/rndx.lua`
-  * Version file: `VERSION` (repo root)
+  ```
+  lua_run_cl if libNyx and libNyx.UI and libNyx.UI.OpenShowcase then libNyx.UI.OpenShowcase() end
+  ```
 
 ---
 
-## Project layout
+## Troubleshooting
 
-```
-libnyx/
-├─ VERSION
-└─ lua/
-   ├─ autorun/
-   │  └─ libnyx.lua
-   └─ libnyx/lib/
-      ├─ rndx.lua
-      ├─ libnyx_components.lua
-      └─ libnyx_maindemo.lua
-```
+* **“font doesn’t exist (libNyx.UI.*)”**
+  Loader pre-creates aliases. If you hot-reloaded mid-frame, run `reloadlua` or re-open the UI; fallback is Tahoma when Manrope is missing.
 
----
+* **Nothing happens on `libnyx_liquid`**
+  Ensure the addon path is correct and client has `lua/libnyx/lib/libnyx_liquidglass.lua`. Check console for “Loaded vX (client)” line.
 
-## Dependencies
+* **Artifacts or seams**
+  Prefer drawing a backdrop blur `Rect(...):Blur(1)` behind your `Liquid(...)` call to unify scene samples, then tune `EdgeSmooth` and `GlassBlur`.
 
-This project uses the auxiliary rendering/drawing library **RNDX** by Srlion:
-➡️ [https://github.com/Srlion/RNDX](https://github.com/Srlion/RNDX)
-
-The demo includes an integrated `rndx.lua` and new exclusive Liquid Glass shader by MaryBlackfild
+* **Performance**
+  Start with lower `GlassBlur`, lower `Shimmer`, and smaller box size. Avoid stacking many overlapping liquid surfaces in the same frame.
 
 ---
 
-## 📌 Status & roadmap
+## Changelog
 
-This is a **demo** and API **may change**. Planned:
+### v0.8.0
 
-* More components (tooltips, progress, toasts).
-* Theme packs and light mode.
-* Extended docs with GIFs & examples.
-* Public hooks and event bus.
-
-Have ideas or found a bug? → **[Join the Discord](https://discord.gg/rUEEz4mfXw)**.
-
----
-
-## Contributing
-
-1. Fork the repo and create a feature branch.
-2. Keep code style consistent (Lua 5.1 for GMod).
-3. Submit a PR describing your change & screenshots where useful.
-
-Bug reports and feature requests are welcome in **Issues** or on **Discord**.
+* Added **Liquid Glass** module and **builder UI** (`libnyx_liquid`)
+* New **notification skin** with Liquid styling
+* Smoother scroll with styled bar, inertia, and fading
+* UI polish: ripples, gradients, layout clamps, scale tokens
+* Loader: robust include sequencing, version check improvements
 
 ---
 
-## Author & credits
+## Links
 
-* **Author:** MaryBlackfild
-* **Team:** Nyx Team
-* **Discord:** [https://discord.gg/rUEEz4mfXw](https://discord.gg/rUEEz4mfXw)
-
-Thanks to everyone testing the demo and giving feedback ❤️
+* Discord: `https://discord.gg/rUEEz4mfXw`
+* Home/Updates: `https://github.com/maryblackfild/libnyx`
 
 ---
 
-## Requirements
-
-* Garry’s Mod (x86/x64)
-* Client for UI components; Server required to ship files via `AddCSLuaFile`.
-
----
-
-## License
-
-This project is licensed under the **MIT License**.
-See [`LICENSE`](LICENSE) for details.
-
----
+Made with ❤️ by **MaryBlackfild**.
