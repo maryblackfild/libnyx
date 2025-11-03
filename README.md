@@ -14,7 +14,7 @@
 
 ---
 
-## What’s new in v0.7.0 — Liquid Glass
+## What’s new in v0.8.0 — Liquid Glass
 
 ![Liquid Glass builder](libnyx_liquid.gif)
 
