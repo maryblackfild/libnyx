@@ -250,8 +250,8 @@ function libNyx.UI.OpenShowcase()
             }
         )
 
-        -- (optional) leave B empty to demo drag-drop target
-        -- If you want a second example, uncomment:
+        -- (optional) leave empty to demo drag-drop target
+        -- if u want a second example, uncomment:
         -- invCellB:SetItemIcon(Material("icon16/box.png","noclamp smooth"), libNyx.UI.Scale(36), {
         --     title = "Пустая коробка",
         --     desc  = "Прочная тара для переноски мелких предметов.",
