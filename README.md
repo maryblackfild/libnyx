@@ -301,7 +301,7 @@ See repository license headers. Shader and RNDX integration are credited in-file
 
 ## Changelog
 
-### 0.7.0
+### 0.8.0
 
 * Added **Liquid Glass** effect and live builder (`libnyx_liquid`)
 * New notification skin (glass toasts with progress)
