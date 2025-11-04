@@ -39,7 +39,7 @@ Highlights:
 * A global **menu skin** (Derma menus) and **notification** skin
 * Smooth, configurable **scrollbars**
 * Design tokens (radius, paddings, fonts, accent color) with dynamic scaling
-* A high-level **Liquid Glass** effect powered by **RNDX**
+* A high-level **Liquid Glass** effect powered by **libNyx** and **RNDX**
 
 Discord: `https://discord.gg/rUEEz4mfXw`
 Author: **MaryBlackfild**
