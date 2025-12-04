@@ -296,8 +296,8 @@ local function PalettePick(key)
 end
 
 libNyx.UI.Sounds = {
-    hover = "gsims_sounds/gsims_ui/gsims_ui_blop01.mp3",
-    click = "gsims_sounds/gsims_ui/gsims_ui_blop02.mp3",
+    hover = "nyx_uniqueui/nyxclick_2.mp3",
+    click = "nyx_uniqueui/nyxclick_3.mp3",
 }
 
 function libNyx.UI.PlayHover()
@@ -3202,3 +3202,4 @@ end
 
 -- libNyx by MaryBlackfild
 -- JOIN DISCORD: https://discord.gg/rUEEz4mfXw
+
