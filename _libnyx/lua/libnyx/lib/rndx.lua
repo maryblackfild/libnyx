@@ -81,9 +81,9 @@ screenspace_general
 	$vertexshader ""
 
 	$basetexture ""
-	$texture1	 ""
-	$texture2	 ""
-	$texture3	 ""
+	$texture1    ""
+	$texture2    ""
+	$texture3    ""
 
 	$ignorez 1
 	$vertexcolor 1
@@ -332,7 +332,7 @@ end
 local USE_SHADOWS_BLUR = false
 
 local function draw_blur()
-	RNDX.EnsureFB() -- FIX: Update framebuffer for blur
+	RNDX.EnsureFB()
 	if USE_SHADOWS_BLUR then
 		MAT = SHADOWS_BLUR_MAT
 	else
@@ -666,9 +666,7 @@ local LRECT = {
 		if START_ANGLE == END_ANGLE then
 			return
 		end
-		
-		RNDX.EnsureFB() -- FIX: Ensure framebuffer is up to date for liquid effect
-
+		RNDX.EnsureFB()
 		local OLD
 		if SHADOW_ENABLED or CLIP_PANEL then
 			OLD = DisableClipping(true)
@@ -758,5 +756,6 @@ return RNDX
 
 -- libNyx and LiquidGlass shader by MaryBlackfild
 -- JOIN DISCORD: https://discord.gg/rUEEz4mfXw
+
 
 
