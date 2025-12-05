@@ -46,21 +46,12 @@ local BLUR_RT = GetRenderTargetEx(
 	1024,
 	RT_SIZE_LITERAL,
 	MATERIAL_RT_DEPTH_SEPARATE,
-	bit.bor(2, 256, 4, 8), -- 4, 8 is clamp_s + clamp-t
+	bit.bor(2, 256, 4, 8),
 	0,
 	IMAGE_FORMAT_BGRA8888
 )
 
-local RAMP_RT = GetRenderTargetEx("RNDX_RAMP" .. SHADERS_VERSION,
-	256, 1,
-	RT_SIZE_LITERAL,
-	MATERIAL_RT_DEPTH_SEPARATE,
-	bit.bor(4, 8),
-	0,
-	IMAGE_FORMAT_BGRA8888
-)
-
-local NEW_FLAG; do
+local NEW_FLAG do
 	local flags_n = -1
 	function NEW_FLAG()
 		flags_n = flags_n + 1
@@ -83,31 +74,6 @@ function RNDX.EnsureFB()
 	end
 end
 
-function RNDX.GetSharedRampTexture()
-	return RAMP_RT
-end
-
-function RNDX.UpdateSharedRampTexture(colA, colB)
-	if not RAMP_RT then return end
-	if not colA or not colB then return end
-
-	render.PushRenderTarget(RAMP_RT)
-	render.Clear(0, 0, 0, 0, true, true)
-	cam.Start2D()
-	local w = RAMP_RT:Width()
-	for x = 0, w - 1 do
-		local t = x / (w - 1)
-		local r = Lerp(t, colA.r or 255, colB.r or 255)
-		local g = Lerp(t, colA.g or 255, colB.g or 255)
-		local b = Lerp(t, colA.b or 255, colB.b or 255)
-		local a = Lerp(t, colA.a or 255, colB.a or 255)
-		surface_SetDrawColor(r, g, b, a)
-		surface.DrawRect(x, 0, 1, 1)
-	end
-	cam.End2D()
-	render.PopRenderTarget()
-end
-
 local shader_mat = [==[
 screenspace_general
 {
@@ -119,90 +85,75 @@ screenspace_general
 	$texture2	 ""
 	$texture3	 ""
 
-	// Mandatory, don't touch
-	$ignorez			1
-	$vertexcolor		1
-	$vertextransform	1
-	"<dx90"
-	{
-		$no_draw 1
-	}
-
-	$copyalpha				 0
+	$ignorez 1
+	$vertexcolor 1
+	$vertextransform 1
+	"<dx90" { $no_draw 1 }
+	$copyalpha 0
 	$alpha_blend_color_overlay 0
-	$alpha_blend			   1 // for AA
-	$linearwrite			   1 // to disable broken gamma correction for colors
-	$linearread_basetexture	1 // to disable broken gamma correction for textures
-	$linearread_texture1	   1 // to disable broken gamma correction for textures
-	$linearread_texture2	   1 // to disable broken gamma correction for textures
-	$linearread_texture3	   1 // to disable broken gamma correction for textures
+	$alpha_blend 1
+	$linearwrite 1
+	$linearread_basetexture 1
+	$linearread_texture1 1
+	$linearread_texture2 1
+	$linearread_texture3 1
 }
 ]==]
 
 local MATRIXES = {}
+
 local MATREG = _G.gSims_RNDX_MATREG or {}
 _G.gSims_RNDX_MATREG = MATREG
 
 local function create_shader_mat(name, opts)
-	local key = "gsims/rndx/" .. name .. (opts and opts["$basetexture"] or "")
+	local key = "gsims/rndx/" .. name
 	local mat = MATREG[key]
-	
 	if not mat then
-		local key_values = util.KeyValuesToTable(shader_mat, false, true)
-
+		local kv = util.KeyValuesToTable(shader_mat, false, true)
 		if opts then
 			for k, v in pairs(opts) do
-				key_values[k] = v
+				kv[k] = v
 			end
 		end
-
-		mat = CreateMaterial(
-			"rndx_shaders_v" .. SHADERS_VERSION .. name .. SysTime(),
-			"screenspace_general",
-			key_values
-		)
-
+		mat = CreateMaterial(key, "screenspace_general", kv)
 		MATRIXES[mat] = Matrix()
 		MATREG[key] = mat
 	end
-
 	return mat
 end
 
 local ROUNDED_MAT = create_shader_mat("rounded", {
 	["$pixshader"] = GET_SHADER("rndx_rounded_ps30"),
-	["$vertexshader"] = GET_SHADER("rndx_vertex_vs30"),
+	["$vertexshader"] = GET_SHADER("rndx_vertex_vs30")
 })
+
 local ROUNDED_TEXTURE_MAT = create_shader_mat("rounded_texture", {
 	["$pixshader"] = GET_SHADER("rndx_rounded_ps30"),
 	["$vertexshader"] = GET_SHADER("rndx_vertex_vs30"),
-	["$basetexture"] = "loveyoumom", -- if there is no base texture, you can't change it later
+	["$basetexture"] = "loveyoumom"
 })
 
 local BLUR_VERTICAL = "$c0_x"
-local C1_X, C1_Y, C1_Z, C1_W = "$c1_x", "$c1_y", "$c1_z", "$c1_w"
-local C2_X, C2_Y, C2_Z, C2_W = "$c2_x", "$c2_y", "$c2_z", "$c2_w"
 
 local ROUNDED_BLUR_MAT = create_shader_mat("blur_horizontal", {
 	["$pixshader"] = GET_SHADER("rndx_rounded_blur_ps30"),
 	["$vertexshader"] = GET_SHADER("rndx_vertex_vs30"),
 	["$basetexture"] = BLUR_RT:GetName(),
-	["$texture1"] = "_rt_FullFrameFB",
+	["$texture1"] = "_rt_FullFrameFB"
 })
 
 local SHADOWS_MAT = create_shader_mat("rounded_shadows", {
 	["$pixshader"] = GET_SHADER("rndx_shadows_ps30"),
-	["$vertexshader"] = GET_SHADER("rndx_vertex_vs30"),
+	["$vertexshader"] = GET_SHADER("rndx_vertex_vs30")
 })
 
 local SHADOWS_BLUR_MAT = create_shader_mat("shadows_blur_horizontal", {
 	["$pixshader"] = GET_SHADER("rndx_shadows_blur_ps30"),
 	["$vertexshader"] = GET_SHADER("rndx_vertex_vs30"),
 	["$basetexture"] = BLUR_RT:GetName(),
-	["$texture1"] = "_rt_FullFrameFB",
+	["$texture1"] = "_rt_FullFrameFB"
 })
 
--- Liquid Shader Setup
 local LIQUID_MAT = create_shader_mat("liquid", {
 	["$pixshader"] = GET_SHADER("rndx_liquid_ps30"),
 	["$vertexshader"] = GET_SHADER("rndx_vertex_vs30"),
@@ -217,8 +168,9 @@ local LIQ_BLUR_ALL, LIQ_BLUR_RAD, LIQ_SMOOTHK = "$c3_x", "$c3_y", "$c3_z"
 local SHAPES = {
 	[SHAPE_CIRCLE] = 2,
 	[SHAPE_FIGMA] = 2.2,
-	[SHAPE_IOS] = 4,
+	[SHAPE_IOS] = 4
 }
+
 local DEFAULT_SHAPE = SHAPE_FIGMA
 
 local MATERIAL_SetTexture = ROUNDED_MAT.SetTexture
@@ -237,10 +189,6 @@ local START_ANGLE, END_ANGLE, ROTATION
 local CLIP_PANEL
 local SHADOW_ENABLED, SHADOW_SPREAD, SHADOW_INTENSITY
 
-local GRAD_MODE_FLAG, GRAD_CENTER_X, GRAD_CENTER_Y, GRAD_ANGLE
-local GRAD_SCALE_X, GRAD_SCALE_Y, GRAD_USE_RAMP_TEX, GRAD_TILING_MODE
-local GRAD_RAMP_TEXTURE
-
 local function RESET_PARAMS()
 	MAT = nil
 	X, Y, W, H = 0, 0, 0, 0
@@ -252,85 +200,54 @@ local function RESET_PARAMS()
 	START_ANGLE, END_ANGLE, ROTATION = 0, 360, 0
 	CLIP_PANEL = nil
 	SHADOW_ENABLED, SHADOW_SPREAD, SHADOW_INTENSITY = false, 0, 0
-	GRAD_MODE_FLAG, GRAD_CENTER_X, GRAD_CENTER_Y, GRAD_ANGLE = 0, 0.5, 0.5, 0
-	GRAD_SCALE_X, GRAD_SCALE_Y, GRAD_USE_RAMP_TEX, GRAD_TILING_MODE = 0, 0, false, 0
-	GRAD_RAMP_TEXTURE = nil
 end
 
-local normalize_corner_radii; do
+local normalize_corner_radii do
 	local HUGE = math.huge
-
 	local function nzr(x)
-		if x ~= x or x < 0 then return 0 end
+		if x ~= x or x < 0 then
+			return 0
+		end
 		local lim = math_min(W, H)
-		if x == HUGE then return lim end
+		if x == HUGE then
+			return lim
+		end
 		return x
 	end
-
-	local function clamp0(x) return x < 0 and 0 or x end
-
+	local function clamp0(x)
+		return x < 0 and 0 or x
+	end
 	function normalize_corner_radii()
-		local TL, TR, BL, BR = nzr(TL), nzr(TR), nzr(BL), nzr(BR)
-
+		local TL_, TR_, BL_, BR_ = nzr(TL), nzr(TR), nzr(BL), nzr(BR)
 		local k = math_max(
 			1,
-			(TL + TR) / W,
-			(BL + BR) / W,
-			(TL + BL) / H,
-			(TR + BR) / H
+			(TL_ + TR_) / W,
+			(BL_ + BR_) / W,
+			(TL_ + BL_) / H,
+			(TR_ + BR_) / H
 		)
-
 		if k > 1 then
 			local inv = 1 / k
-			TL, TR, BL, BR = TL * inv, TR * inv, BL * inv, BR * inv
+			TL_, TR_, BL_, BR_ = TL_ * inv, TR_ * inv, BL_ * inv, BR_ * inv
 		end
-
-		return clamp0(TL), clamp0(TR), clamp0(BL), clamp0(BR)
+		return clamp0(TL_), clamp0(TR_), clamp0(BL_), clamp0(BR_)
 	end
 end
 
 local function SetupDraw()
-	local TL, TR, BL, BR = normalize_corner_radii()
-
+	local TL_, TR_, BL_, BR_ = normalize_corner_radii()
 	local matrix = MATRIXES[MAT]
 	MATRIX_SetUnpacked(
 		matrix,
-
-		BL, W, OUTLINE_THICKNESS or -1, END_ANGLE,
-		BR, H, SHADOW_INTENSITY, ROTATION,
-		TR, SHAPE, BLUR_INTENSITY or 1.0, 0,
-		TL, TEXTURE and 1 or 0, START_ANGLE, 0
+		BL_, W, OUTLINE_THICKNESS or -1, END_ANGLE,
+		BR_, H, SHADOW_INTENSITY, ROTATION,
+		TR_, SHAPE, BLUR_INTENSITY or 1.0, 0,
+		TL_, TEXTURE and 1 or 0, START_ANGLE, 0
 	)
 	MATERIAL_SetMatrix(MAT, "$viewprojmat", matrix)
-
-	if MAT ~= LIQUID_MAT then
-		local mode = GRAD_MODE_FLAG or 0
-		local cx = GRAD_CENTER_X or 0.5
-		local cy = GRAD_CENTER_Y or 0.5
-		local gangle = GRAD_ANGLE or 0
-		local sx = GRAD_SCALE_X ~= 0 and GRAD_SCALE_X or W
-		local sy = GRAD_SCALE_Y ~= 0 and GRAD_SCALE_Y or H
-		local use_ramp = GRAD_USE_RAMP_TEX and 1 or 0
-		local tiling = GRAD_TILING_MODE or 0
-
-		MATERIAL_SetFloat(MAT, C1_X, cx)
-		MATERIAL_SetFloat(MAT, C1_Y, cy)
-		MATERIAL_SetFloat(MAT, C1_Z, gangle)
-		MATERIAL_SetFloat(MAT, C1_W, mode)
-		MATERIAL_SetFloat(MAT, C2_X, sx)
-		MATERIAL_SetFloat(MAT, C2_Y, sy)
-		MATERIAL_SetFloat(MAT, C2_Z, use_ramp)
-		MATERIAL_SetFloat(MAT, C2_W, tiling)
-
-		if GRAD_RAMP_TEXTURE then
-			MATERIAL_SetTexture(MAT, "$texture2", GRAD_RAMP_TEXTURE)
-		end
-	end
-
 	if COL_R then
 		surface_SetDrawColor(COL_R, COL_G, COL_B, COL_A)
 	end
-
 	surface_SetMaterial(MAT)
 end
 
@@ -341,32 +258,28 @@ local function draw_rounded(x, y, w, h, col, flags, tl, tr, bl, br, texture, thi
 	if col and col.a == 0 then
 		return
 	end
-
 	RESET_PARAMS()
-
 	if not flags then
 		flags = DEFAULT_DRAW_FLAGS
 	end
-
 	local using_blur = bit_band(flags, BLUR) ~= 0
 	if using_blur then
 		return RNDX.DrawBlur(x, y, w, h, flags, tl, tr, bl, br, thickness)
 	end
-
-	MAT = ROUNDED_MAT; if texture then
+	MAT = ROUNDED_MAT
+	if texture then
 		MAT = ROUNDED_TEXTURE_MAT
 		MATERIAL_SetTexture(MAT, "$basetexture", texture)
 		TEXTURE = texture
 	end
-
 	W, H = w, h
-	TL, TR, BL, BR = bit_band(flags, NO_TL) == 0 and tl or 0,
+	TL, TR, BL, BR =
+		bit_band(flags, NO_TL) == 0 and tl or 0,
 		bit_band(flags, NO_TR) == 0 and tr or 0,
 		bit_band(flags, NO_BL) == 0 and bl or 0,
 		bit_band(flags, NO_BR) == 0 and br or 0
 	SHAPE = SHAPES[bit_band(flags, SHAPE_CIRCLE + SHAPE_FIGMA + SHAPE_IOS)] or SHAPES[DEFAULT_SHAPE]
 	OUTLINE_THICKNESS = thickness
-
 	if bit_band(flags, MANUAL_COLOR) ~= 0 then
 		COL_R = nil
 	elseif col then
@@ -374,11 +287,7 @@ local function draw_rounded(x, y, w, h, col, flags, tl, tr, bl, br, texture, thi
 	else
 		COL_R, COL_G, COL_B, COL_A = 255, 255, 255, 255
 	end
-
 	SetupDraw()
-
-	-- https://github.com/Jaffies/rboxes/blob/main/rboxes.lua
-	-- fixes setting $basetexture to ""(none) not working correctly
 	return surface_DrawTexturedRectUV(x, y, w, h, -0.015625, -0.015625, 1.015625, 1.015625)
 end
 
@@ -414,25 +323,26 @@ function RNDX.DrawCircleTexture(x, y, r, col, texture, flags)
 end
 
 function RNDX.DrawCircleMaterial(x, y, r, col, mat, flags)
-	return RNDX.DrawMaterial(r / 2, x - r / 2, y - r / 2, r, r, col, mat, (flags or 0) + SHAPE_CIRCLE)
+	local tex = mat:GetTexture("$basetexture")
+	if tex then
+		return RNDX.DrawTexture(r / 2, x - r / 2, y - r / 2, r, r, col, tex, (flags or 0) + SHAPE_CIRCLE)
+	end
 end
 
 local USE_SHADOWS_BLUR = false
 
 local function draw_blur()
+	RNDX.EnsureFB() -- FIX: Update framebuffer for blur
 	if USE_SHADOWS_BLUR then
 		MAT = SHADOWS_BLUR_MAT
 	else
 		MAT = ROUNDED_BLUR_MAT
 	end
-
 	COL_R, COL_G, COL_B, COL_A = 255, 255, 255, 255
 	SetupDraw()
-
 	render_CopyRenderTargetToTexture(BLUR_RT)
 	MATERIAL_SetFloat(MAT, BLUR_VERTICAL, 0)
 	surface_DrawTexturedRect(X, Y, W, H)
-
 	render_CopyRenderTargetToTexture(BLUR_RT)
 	MATERIAL_SetFloat(MAT, BLUR_VERTICAL, 1)
 	surface_DrawTexturedRect(X, Y, W, H)
@@ -440,33 +350,30 @@ end
 
 function RNDX.DrawBlur(x, y, w, h, flags, tl, tr, bl, br, thickness)
 	RESET_PARAMS()
-
 	if not flags then
 		flags = DEFAULT_DRAW_FLAGS
 	end
-
 	X, Y = x, y
 	W, H = w, h
-	TL, TR, BL, BR = bit_band(flags, NO_TL) == 0 and tl or 0,
+	TL, TR, BL, BR =
+		bit_band(flags, NO_TL) == 0 and tl or 0,
 		bit_band(flags, NO_TR) == 0 and tr or 0,
 		bit_band(flags, NO_BL) == 0 and bl or 0,
 		bit_band(flags, NO_BR) == 0 and br or 0
 	SHAPE = SHAPES[bit_band(flags, SHAPE_CIRCLE + SHAPE_FIGMA + SHAPE_IOS)] or SHAPES[DEFAULT_SHAPE]
 	OUTLINE_THICKNESS = thickness
-
 	draw_blur()
 end
 
 local function setup_shadows()
 	X = X - SHADOW_SPREAD
 	Y = Y - SHADOW_SPREAD
-	W = W + (SHADOW_SPREAD * 2)
-	H = H + (SHADOW_SPREAD * 2)
-
-	TL = TL + (SHADOW_SPREAD * 2)
-	TR = TR + (SHADOW_SPREAD * 2)
-	BL = BL + (SHADOW_SPREAD * 2)
-	BR = BR + (SHADOW_SPREAD * 2)
+	W = W + SHADOW_SPREAD * 2
+	H = H + SHADOW_SPREAD * 2
+	TL = TL + SHADOW_SPREAD * 2
+	TR = TR + SHADOW_SPREAD * 2
+	BL = BL + SHADOW_SPREAD * 2
+	BR = BR + SHADOW_SPREAD * 2
 end
 
 local function draw_shadows(r, g, b, a)
@@ -475,18 +382,13 @@ local function draw_shadows(r, g, b, a)
 		draw_blur()
 		USE_SHADOWS_BLUR = false
 	end
-
 	MAT = SHADOWS_MAT
-
 	if r == false then
 		COL_R = nil
 	else
 		COL_R, COL_G, COL_B, COL_A = r, g, b, a
 	end
-
 	SetupDraw()
-	-- https://github.com/Jaffies/rboxes/blob/main/rboxes.lua
-	-- fixes having no $basetexture causing uv to be broken
 	surface_DrawTexturedRectUV(X, Y, W, H, -0.015625, -0.015625, 1.015625, 1.015625)
 end
 
@@ -494,33 +396,24 @@ function RNDX.DrawShadowsEx(x, y, w, h, col, flags, tl, tr, bl, br, spread, inte
 	if col and col.a == 0 then
 		return
 	end
-
-	local OLD_CLIPPING_STATE = DisableClipping(true)
-
+	local OLD = DisableClipping(true)
 	RESET_PARAMS()
-
 	if not flags then
 		flags = DEFAULT_DRAW_FLAGS
 	end
-
 	X, Y = x, y
 	W, H = w, h
 	SHADOW_SPREAD = spread or 30
 	SHADOW_INTENSITY = intensity or SHADOW_SPREAD * 1.2
-
-	TL, TR, BL, BR = bit_band(flags, NO_TL) == 0 and tl or 0,
+	TL, TR, BL, BR =
+		bit_band(flags, NO_TL) == 0 and tl or 0,
 		bit_band(flags, NO_TR) == 0 and tr or 0,
 		bit_band(flags, NO_BL) == 0 and bl or 0,
 		bit_band(flags, NO_BR) == 0 and br or 0
-
 	SHAPE = SHAPES[bit_band(flags, SHAPE_CIRCLE + SHAPE_FIGMA + SHAPE_IOS)] or SHAPES[DEFAULT_SHAPE]
-
 	OUTLINE_THICKNESS = thickness
-
 	setup_shadows()
-
 	USING_BLUR = bit_band(flags, BLUR) ~= 0
-
 	if bit_band(flags, MANUAL_COLOR) ~= 0 then
 		draw_shadows(false, nil, nil, nil)
 	elseif col then
@@ -528,8 +421,7 @@ function RNDX.DrawShadowsEx(x, y, w, h, col, flags, tl, tr, bl, br, spread, inte
 	else
 		draw_shadows(0, 0, 0, 255)
 	end
-
-	DisableClipping(OLD_CLIPPING_STATE)
+	DisableClipping(OLD)
 end
 
 function RNDX.DrawShadows(r, x, y, w, h, col, spread, intensity, flags)
@@ -540,144 +432,90 @@ function RNDX.DrawShadowsOutlined(r, x, y, w, h, col, thickness, spread, intensi
 	return RNDX.DrawShadowsEx(x, y, w, h, col, flags, r, r, r, r, spread, intensity, thickness or 1)
 end
 
-local BASE_FUNCS; BASE_FUNCS = {
-	Rad = function(self, rad)
-		TL, TR, BL, BR = rad, rad, rad, rad
-		return self
-	end,
-	Radii = function(self, tl, tr, bl, br)
-		TL, TR, BL, BR = tl or 0, tr or 0, bl or 0, br or 0
-		return self
-	end,
-	Texture = function(self, texture)
-		TEXTURE = texture
-		return self
-	end,
-	Material = function(self, mat)
-		local tex = mat:GetTexture("$basetexture")
-		if tex then
-			TEXTURE = tex
+local BASE_FUNCS do
+	BASE_FUNCS = {
+		Rad = function(self, rad)
+			TL, TR, BL, BR = rad, rad, rad, rad
+			return self
+		end,
+		Radii = function(self, tl, tr, bl, br)
+			TL, TR, BL, BR = tl or 0, tr or 0, bl or 0, br or 0
+			return self
+		end,
+		Texture = function(self, texture)
+			TEXTURE = texture
+			return self
+		end,
+		Material = function(self, mat)
+			local tex = mat:GetTexture("$basetexture")
+			if tex then
+				TEXTURE = tex
+			end
+			return self
+		end,
+		Outline = function(self, thickness)
+			OUTLINE_THICKNESS = thickness
+			return self
+		end,
+		Shape = function(self, shape)
+			SHAPE = SHAPES[shape] or 2.2
+			return self
+		end,
+		Color = function(self, cr, g, b, a)
+			if type(cr) == "number" then
+				COL_R, COL_G, COL_B, COL_A = cr, g or 255, b or 255, a or 255
+			else
+				COL_R, COL_G, COL_B, COL_A = cr.r, cr.g, cr.b, cr.a
+			end
+			return self
+		end,
+		Blur = function(self, intensity)
+			intensity = intensity or 1.0
+			intensity = math_max(intensity, 0)
+			USING_BLUR, BLUR_INTENSITY = true, intensity
+			return self
+		end,
+		Rotation = function(self, ang)
+			ROTATION = math.rad(ang or 0)
+			return self
+		end,
+		StartAngle = function(self, a)
+			START_ANGLE = a or 0
+			return self
+		end,
+		EndAngle = function(self, a)
+			END_ANGLE = a or 360
+			return self
+		end,
+		Shadow = function(self, spread, intensity)
+			SHADOW_ENABLED, SHADOW_SPREAD, SHADOW_INTENSITY =
+				true, spread or 30, intensity or (spread or 30) * 1.2
+			return self
+		end,
+		Clip = function(self, pnl)
+			CLIP_PANEL = pnl
+			return self
+		end,
+		Flags = function(self, flags)
+			flags = flags or 0
+			if bit_band(flags, NO_TL) ~= 0 then TL = 0 end
+			if bit_band(flags, NO_TR) ~= 0 then TR = 0 end
+			if bit_band(flags, NO_BL) ~= 0 then BL = 0 end
+			if bit_band(flags, NO_BR) ~= 0 then BR = 0 end
+			local shape_flag = bit_band(flags, SHAPE_CIRCLE + SHAPE_FIGMA + SHAPE_IOS)
+			if shape_flag ~= 0 then
+				SHAPE = SHAPES[shape_flag] or SHAPES[DEFAULT_SHAPE]
+			end
+			if bit_band(flags, BLUR) ~= 0 then
+				BASE_FUNCS.Blur(self)
+			end
+			if bit_band(flags, MANUAL_COLOR) ~= 0 then
+				COL_R = nil
+			end
+			return self
 		end
-		return self
-	end,
-	Outline = function(self, thickness)
-		OUTLINE_THICKNESS = thickness
-		return self
-	end,
-	Shape = function(self, shape)
-		SHAPE = SHAPES[shape] or 2.2
-		return self
-	end,
-	Color = function(self, col_or_r, g, b, a)
-		if type(col_or_r) == "number" then
-			COL_R, COL_G, COL_B, COL_A = col_or_r, g or 255, b or 255, a or 255
-		else
-			COL_R, COL_G, COL_B, COL_A = col_or_r.r, col_or_r.g, col_or_r.b, col_or_r.a
-		end
-		return self
-	end,
-	Blur = function(self, intensity)
-		if not intensity then
-			intensity = 1.0
-		end
-		intensity = math_max(intensity, 0)
-		USING_BLUR, BLUR_INTENSITY = true, intensity
-		return self
-	end,
-	GradientNone = function(self)
-		GRAD_MODE_FLAG = 0
-		GRAD_RAMP_TEXTURE = nil
-		GRAD_USE_RAMP_TEX = false
-		return self
-	end,
-	GradientTiling = function(self, mode)
-		-- 0 clamp, 1 repeat, 2 mirror
-		GRAD_TILING_MODE = mode or 0
-		return self
-	end,
-	GradientLinear = function(self, cx, cy, angle_degrees, scale)
-		GRAD_MODE_FLAG = 1
-		GRAD_CENTER_X, GRAD_CENTER_Y = cx or 0.5, cy or 0.5
-		GRAD_ANGLE = math.rad(angle_degrees or 0)
-		GRAD_SCALE_X = scale or 0
-		GRAD_SCALE_Y = 0
-		return self
-	end,
-	GradientRadial = function(self, cx, cy, scale_x, scale_y)
-		GRAD_MODE_FLAG = 2
-		GRAD_CENTER_X, GRAD_CENTER_Y = cx or 0.5, cy or 0.5
-		GRAD_SCALE_X = scale_x or 0
-		GRAD_SCALE_Y = scale_y or GRAD_SCALE_X
-		return self
-	end,
-	GradientConic = function(self, cx, cy, angle_degrees)
-		GRAD_MODE_FLAG = 3
-		GRAD_CENTER_X, GRAD_CENTER_Y = cx or 0.5, cy or 0.5
-		GRAD_ANGLE = math.rad(angle_degrees or 0)
-		return self
-	end,
-	GradientTexture = function(self, texture)
-		GRAD_USE_RAMP_TEX = texture ~= nil
-		GRAD_RAMP_TEXTURE = texture or nil
-		return self
-	end,
-	Rotation = function(self, angle)
-		ROTATION = math.rad(angle or 0)
-		return self
-	end,
-	StartAngle = function(self, angle)
-		START_ANGLE = angle or 0
-		return self
-	end,
-	EndAngle = function(self, angle)
-		END_ANGLE = angle or 360
-		return self
-	end,
-	Shadow = function(self, spread, intensity)
-		SHADOW_ENABLED, SHADOW_SPREAD, SHADOW_INTENSITY = true, spread or 30, intensity or (spread or 30) * 1.2
-		return self
-	end,
-	Clip = function(self, pnl)
-		CLIP_PANEL = pnl
-		return self
-	end,
-	Flags = function(self, flags)
-		flags = flags or 0
-
-		-- Corner flags
-		if bit_band(flags, NO_TL) ~= 0 then
-			TL = 0
-		end
-		if bit_band(flags, NO_TR) ~= 0 then
-			TR = 0
-		end
-		if bit_band(flags, NO_BL) ~= 0 then
-			BL = 0
-		end
-		if bit_band(flags, NO_BR) ~= 0 then
-			BR = 0
-		end
-
-		-- Shape flags
-		local shape_flag = bit_band(flags, SHAPE_CIRCLE + SHAPE_FIGMA + SHAPE_IOS)
-		if shape_flag ~= 0 then
-			SHAPE = SHAPES[shape_flag] or SHAPES[DEFAULT_SHAPE]
-		end
-
-		-- Blur flag
-		if bit_band(flags, BLUR) ~= 0 then
-			BASE_FUNCS.Blur(self)
-		end
-
-		-- Manual color flag
-		if bit_band(flags, MANUAL_COLOR) ~= 0 then
-			COL_R = nil
-		end
-
-		return self
-	end,
-
-}
+	}
+end
 
 local RECT = {
 	Rad = BASE_FUNCS.Rad,
@@ -688,36 +526,25 @@ local RECT = {
 	Shape = BASE_FUNCS.Shape,
 	Color = BASE_FUNCS.Color,
 	Blur = BASE_FUNCS.Blur,
-	GradientNone= BASE_FUNCS.GradientNone,
-	GradientTiling= BASE_FUNCS.GradientTiling,
-	GradientLinear= BASE_FUNCS.GradientLinear,
-	GradientRadial= BASE_FUNCS.GradientRadial,
-	GradientConic= BASE_FUNCS.GradientConic,
-	GradientTexture= BASE_FUNCS.GradientTexture,
 	Rotation = BASE_FUNCS.Rotation,
 	StartAngle = BASE_FUNCS.StartAngle,
 	EndAngle = BASE_FUNCS.EndAngle,
 	Clip = BASE_FUNCS.Clip,
 	Shadow = BASE_FUNCS.Shadow,
 	Flags = BASE_FUNCS.Flags,
-
 	Draw = function(self)
 		if START_ANGLE == END_ANGLE then
-			return -- nothing to draw
+			return
 		end
-
-		local OLD_CLIPPING_STATE
+		local OLD
 		if SHADOW_ENABLED or CLIP_PANEL then
-			-- if we are inside a panel, we need to draw outside of it
-			OLD_CLIPPING_STATE = DisableClipping(true)
+			OLD = DisableClipping(true)
 		end
-
 		if CLIP_PANEL then
 			local sx, sy = CLIP_PANEL:LocalToScreen(0, 0)
 			local sw, sh = CLIP_PANEL:GetSize()
 			render.SetScissorRect(sx, sy, sx + sw, sy + sh, true)
 		end
-
 		if SHADOW_ENABLED then
 			setup_shadows()
 			draw_shadows(COL_R, COL_G, COL_B, COL_A)
@@ -727,34 +554,32 @@ local RECT = {
 			if TEXTURE then
 				MAT = ROUNDED_TEXTURE_MAT
 				MATERIAL_SetTexture(MAT, "$basetexture", TEXTURE)
+			else
+				MAT = ROUNDED_MAT
 			end
-
 			SetupDraw()
 			surface_DrawTexturedRectUV(X, Y, W, H, -0.015625, -0.015625, 1.015625, 1.015625)
 		end
-
 		if CLIP_PANEL then
 			render.SetScissorRect(0, 0, 0, 0, false)
 		end
-
 		if SHADOW_ENABLED or CLIP_PANEL then
-			DisableClipping(OLD_CLIPPING_STATE)
+			DisableClipping(OLD)
 		end
 	end,
-
 	GetMaterial = function(self)
 		if SHADOW_ENABLED or USING_BLUR then
 			error("You can't get the material of a shadowed or blurred rectangle!")
 		end
-
 		if TEXTURE then
 			MAT = ROUNDED_TEXTURE_MAT
 			MATERIAL_SetTexture(MAT, "$basetexture", TEXTURE)
+		else
+			MAT = ROUNDED_MAT
 		end
 		SetupDraw()
-
 		return MAT
-	end,
+	end
 }
 
 local CIRCLE = {
@@ -763,21 +588,14 @@ local CIRCLE = {
 	Outline = BASE_FUNCS.Outline,
 	Color = BASE_FUNCS.Color,
 	Blur = BASE_FUNCS.Blur,
-	GradientNone= BASE_FUNCS.GradientNone,
-	GradientTiling= BASE_FUNCS.GradientTiling,
-	GradientLinear= BASE_FUNCS.GradientLinear,
-	GradientRadial= BASE_FUNCS.GradientRadial,
-	GradientConic= BASE_FUNCS.GradientConic,
-	GradientTexture= BASE_FUNCS.GradientTexture,
 	Rotation = BASE_FUNCS.Rotation,
 	StartAngle = BASE_FUNCS.StartAngle,
 	EndAngle = BASE_FUNCS.EndAngle,
 	Clip = BASE_FUNCS.Clip,
 	Shadow = BASE_FUNCS.Shadow,
 	Flags = BASE_FUNCS.Flags,
-
 	Draw = RECT.Draw,
-	GetMaterial = RECT.GetMaterial,
+	GetMaterial = RECT.GetMaterial
 }
 
 local L_STRENGTH, L_SPEED, L_SAT = 0.012, 1.0, 1.06
@@ -848,6 +666,9 @@ local LRECT = {
 		if START_ANGLE == END_ANGLE then
 			return
 		end
+		
+		RNDX.EnsureFB() -- FIX: Ensure framebuffer is up to date for liquid effect
+
 		local OLD
 		if SHADOW_ENABLED or CLIP_PANEL then
 			OLD = DisableClipping(true)
@@ -857,7 +678,6 @@ local LRECT = {
 			local sw, sh = CLIP_PANEL:GetSize()
 			render.SetScissorRect(sx, sy, sx + sw, sy + sh, true)
 		end
-		
 		MAT = LIQUID_MAT
 		MATERIAL_SetFloat(MAT, LIQ_TIME, RealTime() * L_SPEED)
 		MATERIAL_SetFloat(MAT, LIQ_STR, L_STRENGTH)
@@ -872,9 +692,7 @@ local LRECT = {
 		MATERIAL_SetFloat(MAT, LIQ_BLUR_ALL, L_BLURALL)
 		MATERIAL_SetFloat(MAT, LIQ_BLUR_RAD, L_BLURRAD)
 		MATERIAL_SetFloat(MAT, LIQ_SMOOTHK, L_SMOOTHK)
-		
 		SetupDraw()
-		
 		surface_DrawTexturedRectUV(X, Y, W, H, -0.015625, -0.015625, 1.015625, 1.015625)
 		if CLIP_PANEL then
 			render.SetScissorRect(0, 0, 0, 0, false)
@@ -909,22 +727,15 @@ local TYPES = {
 	end
 }
 
-setmetatable(RNDX, {
-	__call = function()
-		return TYPES
-	end
-})
+setmetatable(RNDX, { __call = function() return TYPES end })
 
--- Flags
 RNDX.NO_TL = NO_TL
 RNDX.NO_TR = NO_TR
 RNDX.NO_BL = NO_BL
 RNDX.NO_BR = NO_BR
-
 RNDX.SHAPE_CIRCLE = SHAPE_CIRCLE
 RNDX.SHAPE_FIGMA = SHAPE_FIGMA
 RNDX.SHAPE_IOS = SHAPE_IOS
-
 RNDX.BLUR = BLUR
 RNDX.MANUAL_COLOR = MANUAL_COLOR
 
