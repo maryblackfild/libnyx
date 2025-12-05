@@ -1,8 +1,6 @@
 -- libNyx and LiquidGlass shader by MaryBlackfild
 -- JOIN DISCORD: https://discord.gg/rUEEz4mfXw
 
-if SERVER then AddCSLuaFile() return end
-
 local RNDX = include("libnyx/lib/rndx.lua")
 
 surface.CreateFont("libNyx.Manrope.Liquid",{font="Manrope",size=30,weight=800,antialias=true,extended=true})
@@ -268,22 +266,22 @@ local function open()
         local rr = (st.shape==RNDX.SHAPE_CIRCLE) and math.floor((st.size or 0)*0.5) or (st.rad or 0)
         local lines = {
             "RNDX().Liquid(bx,by,bw,bh)",
-            "            :Rad("..fmt(rr)..")",
-            "            :Color(255,255,255,255)",
-            "            :Tint("..math.floor(st.tr or 0)..","..math.floor(st.tg or 0)..","..math.floor(st.tb or 0)..")",
-            "            :TintStrength("..fmt(st.tints or 0)..")",
-            "            :Saturation("..fmt(st.sat or 1)..")",
-            "            :GlassBlur("..fmt(st.blur_all or 0)..","..fmt(st.blur_rad or 0)..")",
-            "            :EdgeSmooth("..fmt(st.edge or 0)..")",
-            "            :Strength("..fmt(st.strength or 0)..")",
-            "            :Speed("..fmt(st.speed or 0)..")",
-            "            :Shimmer("..fmt(st.shimmer or 0)..")",
-            "            :Grain("..fmt(st.grain or 0)..")",
-            "            :Alpha("..fmt(st.alpha or 1)..")",
-            "            :Flags("..shapeConst()..")"
+            ":Rad("..fmt(rr)..")",
+            ":Color(255,255,255,255)",
+            ":Tint("..math.floor(st.tr or 0)..","..math.floor(st.tg or 0)..","..math.floor(st.tb or 0)..")",
+            ":TintStrength("..fmt(st.tints or 0)..")",
+            ":Saturation("..fmt(st.sat or 1)..")",
+            ":GlassBlur("..fmt(st.blur_all or 0)..","..fmt(st.blur_rad or 0)..")",
+            ":EdgeSmooth("..fmt(st.edge or 0)..")",
+            ":Strength("..fmt(st.strength or 0)..")",
+            ":Speed("..fmt(st.speed or 0)..")",
+            ":Shimmer("..fmt(st.shimmer or 0)..")",
+            ":Grain("..fmt(st.grain or 0)..")",
+            ":Alpha("..fmt(st.alpha or 1)..")",
+            ":Flags("..shapeConst()..")"
         }
         if st.shadow_enabled and ((st.shadow_spread or 0)>0 or (st.shadow_intensity or 0)>0) then
-            table.insert(lines, #lines, "            :Shadow("..fmt(st.shadow_spread or 0)..","..fmt(st.shadow_intensity or 0)..")")
+            table.insert(lines, #lines, ":Shadow("..fmt(st.shadow_spread or 0)..","..fmt(st.shadow_intensity or 0)..")")
         end
         local code = table.concat(lines, "\n")
         SetClipboardText(code)
@@ -370,6 +368,7 @@ local function open()
     end
 
     function rt:Paint(sw,sh)
+        if RNDX.EnsureFB then RNDX.EnsureFB() end
         clampReal()
         local bx,by = st.posX, st.posY
         local bw,bh = st.size, st.size
@@ -404,7 +403,6 @@ local function open()
 end
 
 concommand.Add("libnyx_liquid", open)
-
 
 -- libNyx and LiquidGlass shader by MaryBlackfild
 -- JOIN DISCORD: https://discord.gg/rUEEz4mfXw
