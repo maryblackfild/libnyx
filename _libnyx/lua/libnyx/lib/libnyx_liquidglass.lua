@@ -313,8 +313,8 @@ local function open()
         st = mk()
         RunConsoleCommand("libnyx_liquid_size", tostring(st.size))
         for k,ctrl in pairs(ui.sliders) do if IsValid(ctrl) then ctrl:SetValue(st[k] or 0) end end
-        if IsValid(swCursor) then swCursor:SetChecked(st.cursor_enabled and true or false) end
-        if IsValid(swShadow) then swShadow:SetChecked(st.shadow_enabled and true or false) end
+        if IsValid(swCursor) then swCursor:SetValue(st.cursor_enabled and true or false) end
+        if IsValid(swShadow) then swShadow:SetValue(st.shadow_enabled and true or false) end
         if IsValid(shapeDD) and shapeDD.SetSelectedLabel then shapeDD:SetSelectedLabel(shapeLbl()) end
         clampBox()
         if notification and notification.AddLegacy then notification.AddLegacy("libNyx: settings reset.", NOTIFY_HINT, 2) end
@@ -438,6 +438,12 @@ local function open()
 
     function rt:Think()
         local mx,my = self:LocalCursorPos()
+        if mx == nil or my == nil then
+            local tgt = drag.on and 1 or 0
+            self._hoverA = Lerp(FrameTime()*10, self._hoverA, tgt)
+            self:SetCursor(drag.on and "sizeall" or "arrow")
+            return
+        end
         local bw,bh = st.size,st.size
         local inside = mx>=st.posX and mx<=st.posX+bw and my>=st.posY and my<=st.posY+bh
         local tgt = (inside or drag.on) and 1 or 0
