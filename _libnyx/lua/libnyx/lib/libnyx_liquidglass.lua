@@ -40,6 +40,12 @@ local DEF = {
     shimmer = 25.2,
     grain = 0.01,
     alpha = 0.95,
+    cursor_enabled = false,
+    cursor_strength = 0.018,
+    cursor_radius = 120,
+    cursor_depth = 0.22,
+    cursor_softness = 1.8,
+    cursor_smoothing = 24,
     shape = RNDX.SHAPE_IOS,
     shadow_enabled = true,
     shadow_spread = 40,
@@ -47,6 +53,70 @@ local DEF = {
 }
 
 local function mk() return dup(DEF) end
+
+local DEMO_CURSOR_KEY = "libnyx_liquid_preview"
+
+local function applyDemoCursor(liq, active, screenX, screenY, st)
+    if liq.Depth then
+        liq:Depth(st.cursor_enabled and (st.cursor_depth or 0) or 0)
+    end
+
+    if not st.cursor_enabled then
+        if liq.CursorOff then
+            liq:CursorOff()
+        end
+        return liq
+    end
+
+    local radius = math.max(st.cursor_radius or 0, 0)
+    local strength = math.max(st.cursor_strength or 0, 0)
+    local softness = math.max(st.cursor_softness or 1.8, 0.05)
+    local smoothing = math.max(st.cursor_smoothing or 24, 0.1)
+
+    if liq.CursorSmooth then
+        return liq:CursorSmooth(
+            DEMO_CURSOR_KEY,
+            active,
+            screenX,
+            screenY,
+            radius,
+            strength,
+            softness,
+            smoothing,
+            smoothing * 0.75,
+            smoothing
+        )
+    end
+
+    if active and liq.Cursor then
+        return liq:Cursor(screenX, screenY, radius, strength, softness)
+    end
+
+    if liq.CursorOff then
+        liq:CursorOff()
+    end
+
+    return liq
+end
+
+local function appendDemoCursorCode(lines, st)
+    if not st.cursor_enabled or (st.cursor_strength or 0) <= 0 then
+        return
+    end
+
+    local smoothing = math.max(st.cursor_smoothing or 24, 0.1)
+
+    table.insert(lines, 1, "local mx, my = gui.MousePos()")
+    table.insert(lines, 2, "local inside = mx >= bx and mx <= bx + bw and my >= by and my <= by + bh")
+    table.insert(lines, #lines, ":Depth("..fmt(st.cursor_depth or 0)..")")
+    table.insert(lines, ":CursorSmooth(\"" .. DEMO_CURSOR_KEY .. "\", inside, mx, my, "
+        .. fmt(st.cursor_radius or 0) .. ","
+        .. fmt(st.cursor_strength or 0) .. ","
+        .. fmt(st.cursor_softness or 1.8) .. ","
+        .. fmt(smoothing) .. ","
+        .. fmt(smoothing * 0.75) .. ","
+        .. fmt(smoothing) .. ")")
+end
 
 local function open()
     if not Nyx then return end
@@ -63,7 +133,12 @@ local function open()
     Nyx.AutoNoBG(rt)
     Nyx.InstallGlobalScroll(rt,{step=s(90),speed=18,fadeHold=0.9,width=s(12)})
 
-    function rt:OnRemove() gui.EnableScreenClicker(false) end
+    function rt:OnRemove()
+        gui.EnableScreenClicker(false)
+        if RNDX.ClearLiquidCursorState then
+            RNDX.ClearLiquidCursorState(DEMO_CURSOR_KEY)
+        end
+    end
     function rt:OnKeyCodePressed(k) if k==KEY_ESCAPE then self:Remove() end end
 
     local pad = s(24)
@@ -201,6 +276,14 @@ local function open()
     slider("Grain","grain",0,0.08,0.001)
     slider("Alpha","alpha",0.2,1.0,0.01)
 
+    title("Interaction")
+    local swCursor = toggle("Enable Cursor Pull",st.cursor_enabled,function(v) st.cursor_enabled=v end)
+    slider("Pull","cursor_strength",0,0.05,0.001)
+    slider("Radius","cursor_radius",40,240,1)
+    slider("Depth","cursor_depth",0,1,0.01)
+    slider("Falloff","cursor_softness",0.5,4.0,0.05)
+    slider("Smoothing","cursor_smoothing",4,48,0.5)
+
     title("Shadow")
     local swShadow = toggle("Enable Shadow",st.shadow_enabled,function(v) st.shadow_enabled=v end)
     slider("Spread","shadow_spread",0,120,1)
@@ -230,6 +313,7 @@ local function open()
         st = mk()
         RunConsoleCommand("libnyx_liquid_size", tostring(st.size))
         for k,ctrl in pairs(ui.sliders) do if IsValid(ctrl) then ctrl:SetValue(st[k] or 0) end end
+        if IsValid(swCursor) then swCursor:SetChecked(st.cursor_enabled and true or false) end
         if IsValid(swShadow) then swShadow:SetChecked(st.shadow_enabled and true or false) end
         if IsValid(shapeDD) and shapeDD.SetSelectedLabel then shapeDD:SetSelectedLabel(shapeLbl()) end
         clampBox()
@@ -280,6 +364,7 @@ local function open()
             ":Alpha("..fmt(st.alpha or 1)..")",
             ":Flags("..shapeConst()..")"
         }
+        appendDemoCursorCode(lines, st)
         if st.shadow_enabled and ((st.shadow_spread or 0)>0 or (st.shadow_intensity or 0)>0) then
             table.insert(lines, #lines, ":Shadow("..fmt(st.shadow_spread or 0)..","..fmt(st.shadow_intensity or 0)..")")
         end
@@ -373,6 +458,8 @@ local function open()
         local bx,by = st.posX, st.posY
         local bw,bh = st.size, st.size
         local rr = curRad(bw,bh)
+        local mx,my = gui.MousePos()
+        local inside = mx>=bx and mx<=bx+bw and my>=by and my<=by+bh
 
         RNDX().Rect(bx,by,bw,bh):Rad(rr):Flags(st.shape):Blur(1):Draw()
 
@@ -391,6 +478,7 @@ local function open()
             :Alpha(st.alpha)
             :Flags(st.shape)
 
+        applyDemoCursor(liq, inside, mx, my, st)
         if st.shadow_enabled and (st.shadow_spread>0 or st.shadow_intensity>0) then liq:Shadow(st.shadow_spread,st.shadow_intensity) end
         liq:Draw()
 
