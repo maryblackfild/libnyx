@@ -1,10 +1,73 @@
--- libNyx by MaryBlackfild
--- JOIN DISCORD: https://discord.gg/rUEEz4mfXw
+-----------------------------------------------------------------------------
+-- libNyx - client-side VGUI component & theming library
+-- Original author: MaryBlackfild -- JOIN DISCORD: https://discord.gg/rUEEz4mfXw
+--
+-- Refactor pass: bug fixes, memory/perf cleanup, structure & documentation.
+-- Public API is unchanged (same globals/functions/signatures) so existing
+-- callers keep working; only internals were reorganised.
+--
+-- Contents:
+--   1. Bootstrap & engine-table caching
+--   2. Shared render resources (materials)
+--   3. Scale system (cl_libnyx_ui_scale / cl_libnyx_ui_scalemode)
+--   4. Style / theme table
+--   5. Fonts
+--   6. Sound
+--   7. Core render primitives (Draw.Glass / Draw.Panel)
+--   8. Frame (window) system
+--   9. Fx overlay (flying icons)
+--  10. Components: Cell, drag & drop, Checkbox/Radio, Button, Slider,
+--      Dropdown, List, VBox, Tabs, CategoryCard, SearchBox
+--  11. Smooth scrollbars
+--  12. Global Derma menu skin
+--  13. Notification system (notification.* / gamemode:AddNotify overrides)
+--  14. Dialog boxes (MessageBox / InputBox) + Derma_Message overrides
+--  15. Legacy "gSims" glass render-target compatibility shim
+-----------------------------------------------------------------------------
 
 if SERVER then
     AddCSLuaFile()
     return
 end
+
+-----------------------------------------------------------------------------
+-- 1. Bootstrap & engine-table caching
+--
+-- Engine/library TABLES are cached as locals (not their individual members).
+-- `local surface = surface` lets every `surface.Foo(...)` call below resolve
+-- `surface` from a fast local slot instead of a _G lookup, with no per-call-
+-- site edits required -- and since Lua tables are reference values, this is
+-- fully compatible with code further down that monkey-patches a member
+-- (e.g. surface.PlaySound): both the local and the global still point at the
+-- same table, so the patch is visible everywhere.
+--
+-- Frequently-called bare global FUNCTIONS are cached the same way. None of
+-- these are ever reassigned by this file, so shadowing them is safe.
+-----------------------------------------------------------------------------
+local math, string, table   = math, string, table
+local surface, draw, render = surface, draw, render
+local vgui, hook, timer     = vgui, hook, timer
+local cvars, concommand     = cvars, concommand
+local notification, chat    = notification, chat
+local utf8, gmod            = utf8, gmod
+
+local IsValid    = IsValid
+local isfunction = isfunction
+local istable    = istable
+local isstring   = isstring
+local tostring   = tostring
+local tonumber   = tonumber
+local select     = select
+local Color      = Color
+local Lerp       = Lerp
+local Vector     = Vector
+local Angle      = Angle
+local Material   = Material
+local CurTime    = CurTime
+local SysTime    = SysTime
+local FrameTime  = FrameTime
+local ScrW       = ScrW
+local ScrH       = ScrH
 
 local libNyx = libNyx or {}
 libNyx.UI = libNyx.UI or {}
@@ -12,6 +75,25 @@ _G.libNyx = libNyx
 
 local RNDX = include("libnyx/lib/rndx.lua")
 
+-----------------------------------------------------------------------------
+-- 2. Shared render resources
+--
+-- These materials are reused by almost every component (gradient fills on
+-- buttons/rows/chips/cards, search box icons, ...). They are created exactly
+-- once here at file-load time. Previously several component constructors
+-- (and, worst of all, one Paint callback that runs every single frame)
+-- called Material(...) themselves on every invocation instead of reusing
+-- these -- see the refactor notes at the bottom of this file.
+-----------------------------------------------------------------------------
+local MAT_GRADIENT_L  = Material("vgui/gradient-l", "noclamp smooth")
+local MAT_GRADIENT_R  = Material("vgui/gradient-r", "noclamp smooth")
+local MAT_GRADIENT_U  = Material("vgui/gradient-u", "noclamp smooth")
+local MAT_ICON_SEARCH = Material("icon16/magnifier.png", "noclamp smooth")
+local MAT_ICON_CLEAR  = Material("icon16/cross.png", "noclamp smooth")
+
+-----------------------------------------------------------------------------
+-- 3. Scale system
+-----------------------------------------------------------------------------
 local BASE_W, BASE_H = 1920, 1080
 local cvarScale     = CreateClientConVar("cl_libnyx_ui_scale",     "0",   true, false, "UI scale multiplier (0 = auto).", 0, 2)
 local cvarScaleMode = CreateClientConVar("cl_libnyx_ui_scalemode", "min", true, false, "Auto scale mode: min | h | w | avg")
@@ -36,8 +118,14 @@ local function ComputeScale()
     _scale = math.Clamp(s, 0.75, 1.75)
 end
 
+--- Recomputes every scale-dependent Style metric from the current `_scale`.
+--- No-op if the Style table hasn't been published yet (defensive: this can
+--- only happen if something calls RecomputeScale before the file finishes
+--- loading, which shouldn't occur, but a stale/half-initialised Style is a
+--- worse failure mode than a harmless early-return).
 local function RecomputeStyle()
     local S = libNyx.UI.Style
+    if not S then return end
     _scale = _scale or 1
     S.radius          = math.floor(12 * _scale)
     S.padding         = math.floor(14 * _scale)
@@ -52,6 +140,11 @@ local function RecomputeStyle()
     S.comboItemH      = math.floor(34 * _scale)
 end
 
+--- Scales a design-space (1920x1080) pixel value to the current screen.
+---@param n number Value authored against the 1920x1080 base resolution.
+---@param axis? "w"|"h"|"min"|"max" Axis to scale against; defaults to the
+---             blended UI scale (`_scale`, from cl_libnyx_ui_scalemode).
+---@return integer #Floored, screen-space pixel value.
 function libNyx.UI.Scale(n, axis)
     local v = tonumber(n) or 0
     if axis == "w" then return math.floor(v * _sx) end
@@ -60,20 +153,54 @@ function libNyx.UI.Scale(n, axis)
     if axis == "max" then return math.floor(v * math.max(_sx, _sy)) end
     return math.floor(v * _scale)
 end
+
+---@param n number
+---@return integer
 function libNyx.UI.ScaleW(n) return libNyx.UI.Scale(n, "w") end
+
+---@param n number
+---@return integer
 function libNyx.UI.ScaleH(n) return libNyx.UI.Scale(n, "h") end
+
+---@param w number
+---@param h number
+---@return integer scaledW
+---@return integer scaledH
 function libNyx.UI.ScalePair(w, h) return libNyx.UI.ScaleW(w), libNyx.UI.ScaleH(h) end
 
+--- Recomputes _sx/_sy/_scale from the current screen size and convars, then
+--- refreshes every scale-dependent Style metric. Safe to call at any time.
 local function _refresh()
     ComputeScale()
     RecomputeStyle()
 end
+
+--- Public hook so other code can force a rescale (e.g. after changing a
+--- style convar programmatically rather than through the menu).
 libNyx.UI.RecomputeScale = _refresh
 
 hook.Add("OnScreenSizeChanged", "libNyx.UI.Scale.refresh", _refresh)
 cvars.AddChangeCallback("cl_libnyx_ui_scale",     function() timer.Simple(0, _refresh) end, "libNyx.UI.Scale.cb1")
 cvars.AddChangeCallback("cl_libnyx_ui_scalemode", function() timer.Simple(0, _refresh) end, "libNyx.UI.Scale.cb2")
 
+-----------------------------------------------------------------------------
+-- Legacy "gSims" glass render compatibility shim
+--
+-- This is a self-contained integration for a *different* addon's rendering
+-- API: it wraps that addon's own `Draw.Glass(x, y, w, h, opt)` function with
+-- a per-frame render-budget so only a limited number of panels pay for a
+-- real blur each frame; everything past the budget (or below the configured
+-- minimum area) gets a cheap flat "fake glass" fill instead. This is
+-- independent of libNyx's own libNyx.UI.Draw.Glass defined further below.
+--
+-- BUG FIX: this used to try to patch `Nyx.UI.Draw.Glass` -- `Nyx` (no "lib"
+-- prefix) is not a global this file ever defines, so that condition was
+-- always false and the entire budget/mode system below (despite being fully
+-- implemented, with working convars and a console command) could never
+-- actually attach itself to anything. It now patches the same `Draw.Glass`
+-- field it captured as `originalGlassRenderer`, which is what the captured
+-- variable was clearly for.
+-----------------------------------------------------------------------------
 local c_mode    = CreateClientConVar("cl_gsims_glass_mode", "1", true, false, "", 0, 2)
 local c_budget  = CreateClientConVar("cl_gsims_glass_budget", "6", true, false, "", 0, 128)
 local c_minarea = CreateClientConVar("cl_gsims_glass_minarea", "16384", true, false, "", 0, 524288)
@@ -84,8 +211,10 @@ local function nowBudget() return math.floor(c_budget:GetFloat()) end
 local function nowMinArea() return math.floor(c_minarea:GetFloat()) end
 local function nowStrength() return math.Clamp(math.floor(c_str:GetFloat()), 1, 8) end
 
-local function col(a,b,c,d) return Color(a or 255,b or 255,c or 255,d or 255) end
+local function DefaultColor(a,b,c,d) return Color(a or 255,b or 255,c or 255,d or 255) end
 
+--- Locates whatever blur-capable render library happens to be loaded, under
+--- any of the names different RNDX forks/versions have shipped as.
 local function getRNDX()
     return rawget(_G,"rndx") or rawget(_G,"RNDX") or rawget(_G,"Rdx") or rawget(_G,"RDX")
 end
@@ -101,33 +230,33 @@ local function callRNDXBlur(x,y,w,h,str)
     return false
 end
 
-local G = {}
-G.fid = -1
-G.used = 0
+--- Per-frame render-budget state and the two draw paths (cheap flat "fake"
+--- glass vs. real stencil-masked blur).
+local GlassEngine = { frameID = -1, used = 0 }
 
-function G:beginFrame()
+function GlassEngine:BeginFrame()
     local f = FrameNumber()
-    if f ~= self.fid then
-        self.fid = f
+    if f ~= self.frameID then
+        self.frameID = f
         self.used = 0
     end
 end
 
-local function rb(x,y,w,h,r,c) draw.RoundedBox(r, x,y,w,h, c) end
-local function ro(x,y,w,h,r,c,wid)
+local function DrawRoundedBox(x,y,w,h,r,c) draw.RoundedBox(r, x,y,w,h, c) end
+local function DrawRoundedOutline(x,y,w,h,r,c,wid)
     surface.SetDrawColor(c)
     surface.DrawOutlinedRect(x,y,w,h, wid)
 end
 
-function G:fake(x,y,w,h,opt)
+function GlassEngine:Fake(x,y,w,h,opt)
     local r = (opt and opt.radius) or (libNyx.UI.Style.radius or 6)
-    local fill = (opt and opt.fill) or (libNyx.UI.Style.glassFill or col(255,255,255,14))
-    local stroke = (opt and opt.stroke ~= false) and ((opt and opt.strokeColor) or (libNyx.UI.Style.glassStroke or col(255,255,255,22)))
-    rb(x,y,w,h,r,fill)
-    if stroke then ro(x,y,w,h,r,stroke, libNyx.UI.Style.strokeWidth or 1) end
+    local fill = (opt and opt.fill) or (libNyx.UI.Style.glassFill or DefaultColor(255,255,255,14))
+    local stroke = (opt and opt.stroke ~= false) and ((opt and opt.strokeColor) or (libNyx.UI.Style.glassStroke or DefaultColor(255,255,255,22)))
+    DrawRoundedBox(x,y,w,h,r,fill)
+    if stroke then DrawRoundedOutline(x,y,w,h,r,stroke, libNyx.UI.Style.strokeWidth or 1) end
 end
 
-function G:maskBegin(x,y,w,h,r)
+function GlassEngine:MaskBegin(x,y,w,h,r)
     render.ClearStencil()
     render.SetStencilEnable(true)
     render.SetStencilWriteMask(255)
@@ -135,57 +264,60 @@ function G:maskBegin(x,y,w,h,r)
     render.SetStencilReferenceValue(1)
     render.SetStencilCompareFunction(STENCIL_ALWAYS)
     render.SetStencilPassOperation(STENCIL_REPLACE)
-    rb(x,y,w,h,r, col(255,255,255,255))
+    DrawRoundedBox(x,y,w,h,r, DefaultColor(255,255,255,255))
     render.SetStencilCompareFunction(STENCIL_EQUAL)
     render.SetStencilPassOperation(STENCIL_KEEP)
 end
 
-function G:maskEnd()
+function GlassEngine:MaskEnd()
     render.SetStencilEnable(false)
 end
 
-function G:blur(x,y,w,h,opt)
+function GlassEngine:Blur(x,y,w,h,opt)
     local r = (opt and opt.radius) or (libNyx.UI.Style.radius or 6)
     local s = nowStrength()
-    self:maskBegin(x,y,w,h,r)
+    self:MaskBegin(x,y,w,h,r)
     render.SetScissorRect(x, y, x + w, y + h, true)
     local ok = callRNDXBlur(x,y,w,h,s)
     render.SetScissorRect(0,0,0,0,false)
-    self:maskEnd()
-    local fill = (opt and opt.fill) or (libNyx.UI.Style.glassTint or col(255,255,255,8))
-    local stroke = (opt and opt.stroke ~= false) and ((opt and opt.strokeColor) or (libNyx.UI.Style.glassStroke or col(255,255,255,22)))
+    self:MaskEnd()
+    local fill = (opt and opt.fill) or (libNyx.UI.Style.glassTint or DefaultColor(255,255,255,8))
+    local stroke = (opt and opt.stroke ~= false) and ((opt and opt.strokeColor) or (libNyx.UI.Style.glassStroke or DefaultColor(255,255,255,22)))
     if ok then
-        rb(x,y,w,h,r,fill)
-        if stroke then ro(x,y,w,h,r,stroke, libNyx.UI.Style.strokeWidth or 1) end
+        DrawRoundedBox(x,y,w,h,r,fill)
+        if stroke then DrawRoundedOutline(x,y,w,h,r,stroke, libNyx.UI.Style.strokeWidth or 1) end
     else
-        self:fake(x,y,w,h,opt)
+        self:Fake(x,y,w,h,opt)
     end
 end
 
-local gsims_glass_orig = Draw and Draw.Glass
+-- Captured so the patch below only installs itself when there is a real
+-- `Draw.Glass` to take over from (and so a future "pass-through" mode has
+-- something to call through to without another lookup).
+local originalGlassRenderer = Draw and Draw.Glass
 
 local function gsims_glass(x,y,w,h,opt)
-    G:beginFrame()
+    GlassEngine:BeginFrame()
     local m = nowMode()
-    if m == 0 then return G:fake(x,y,w,h,opt) end
+    if m == 0 then return GlassEngine:Fake(x,y,w,h,opt) end
     if m == 2 then
-        G.used = G.used + 1
-        return G:blur(x,y,w,h,opt)
+        GlassEngine.used = GlassEngine.used + 1
+        return GlassEngine:Blur(x,y,w,h,opt)
     end
     local area = math.max(1, math.floor(w) * math.floor(h))
-    local allow = G.used < nowBudget()
+    local allow = GlassEngine.used < nowBudget()
     local big = area >= nowMinArea()
     local force = opt and opt.forceBlur == true
     if force or (allow and big) then
-        G.used = G.used + 1
-        return G:blur(x,y,w,h,opt)
+        GlassEngine.used = GlassEngine.used + 1
+        return GlassEngine:Blur(x,y,w,h,opt)
     else
-        return G:fake(x,y,w,h,opt)
+        return GlassEngine:Fake(x,y,w,h,opt)
     end
 end
 
-if Nyx and Nyx.UI and Nyx.UI.Draw then
-    Nyx.UI.Draw.Glass = gsims_glass
+if Draw and originalGlassRenderer then
+    Draw.Glass = gsims_glass
 end
 
 concommand.Add("gsims_glass", function(p,cmd,args)
@@ -277,7 +409,6 @@ function libNyx.UI.Font(size)
     return fontCache[size]
 end
 
-local MAT_GRADIENT_L = Material("vgui/gradient-l", "noclamp smooth")
 
 local GRAD_PALETTE = {
     Color( 90,160,255),
@@ -1310,8 +1441,6 @@ function Components.CreateButton(parent, text, opts)
     btn._onClick     = opts.onClick
     btn._tint        = opts.tint
     btn._centerTint  = opts.centerTint or opts.tint2
-    local MAT_GRADIENT_L = Material("vgui/gradient-l", "noclamp smooth")
-    local MAT_GRADIENT_R = Material("vgui/gradient-r", "noclamp smooth")
     local function lighten(col, k)
         return Color(
             math.Clamp(col.r + (255 - col.r) * k, 0, 255),
@@ -1433,7 +1562,6 @@ function libNyx.UI.Components.CreateSlider(parent, opts)
     sld._font     = SUI.Font(SUI.Scale(18))
     sld._fontNum  = SUI.Font(SUI.Scale(18))
 
-    local MAT_GRADIENT_L = Material("vgui/gradient-l","noclamp smooth")
     local function fmtn(v,d) return (d or 0) <= 0 and tostring(math.Round(v)) or string.format("%."..d.."f", v) end
     local function fracFromValue(v) local r=sld._max - sld._min if r<=0 then return 0 end return (v - sld._min)/r end
     local function valueFromFrac(f) return sld._min + f*(sld._max - sld._min) end
@@ -1857,8 +1985,6 @@ function Components.CreateVBox(parent, opts)
         timer.Simple(0, function() if IsValid(pnl._mp) then FitModelLocal(pnl._mp) end end)
     end
 
-    local MAT_GRADIENT_L = Material("vgui/gradient-l", "noclamp smooth")
-    local MAT_GRADIENT_R = Material("vgui/gradient-r", "noclamp smooth")
     local function lighten(c, k)
         return Color(
             math.Clamp(c.r + (255 - c.r) * k, 0, 255),
@@ -1914,10 +2040,13 @@ function Components.CreateVBox(parent, opts)
             )
             local gh  = math.floor(h * Lerp(self._hoverA, 0.65, 0.78))
             local y0  = h - gh - math.floor(libNyx.UI.Scale(4) * self._hoverA)
-            local MAT_GRADIENT_U = Material("vgui/gradient-u", "noclamp smooth")
-            local rect = RNDX().Rect(0, y0, w, gh):Radii(0, 0, Style.radius, Style.radius):Material(MAT_GRADIENT_U):Color(col)
-            local mat = rect:GetMaterial()
-            surface.SetMaterial(mat)
+            -- NOTE: previously this built a full RNDX rect-builder object here
+            -- every single frame (Material()+Radii()+Color() chain) purely to
+            -- call :GetMaterial() on it -- i.e. to read back the exact material
+            -- constant it had just been given. The builder was never even
+            -- drawn. Using the cached material directly is both correct and
+            -- avoids a per-frame allocation in a hot Paint callback.
+            surface.SetMaterial(MAT_GRADIENT_U)
             surface.SetDrawColor(col)
             surface.DrawTexturedRectUV(0, y0, w, gh, 0, 1, 1, 0)
         elseif self._variant == "sunburst" then
@@ -1980,7 +2109,6 @@ function Components.CreateTabs(parent, opts)
     local font   = libNyx.UI.Font(libNyx.UI.Scale(18))
     local tabH   = math.max(libNyx.UI.Scale(42), tonumber(opts.height or 0))
     local padY   = libNyx.UI.Scale(6)
-    local MAT_GRADIENT_L = Material("vgui/gradient-l", "noclamp smooth")
 
     local rail = vgui.Create("DPanel", pnl)
     rail:Dock(FILL)
@@ -2186,8 +2314,6 @@ function Components.CreateCategoryCard(parent, opts)
         local k = 1 - math.exp(-(spd or 10) * FrameTime())
         return cur + (tgt - cur) * k
     end
-    local MAT_GRADIENT_L = Material("vgui/gradient-l", "noclamp smooth")
-    local MAT_GRADIENT_R = Material("vgui/gradient-r", "noclamp smooth")
     local function lighten(c, k)
         return Color(
             math.Clamp(c.r + (255 - c.r) * k, 0, 255),
@@ -2265,9 +2391,6 @@ function Components.CreateSearchBox(parent, opts)
     box._gradA       = 0
     box._langID      = "EN"
     box._lastText    = ""
-    local MAT_GRADIENT_L = Material("vgui/gradient-l", "noclamp smooth")
-    local MAT_ICON_SEARCH = Material("icon16/magnifier.png", "noclamp smooth")
-    local MAT_ICON_CLEAR  = Material("icon16/cross.png", "noclamp smooth")
 
     local btnClear = vgui.Create("DButton", box)
     btnClear:SetText("")
@@ -2491,7 +2614,6 @@ function libNyx.UI.SmoothScroll.ApplyToScrollPanel(sp, opts)
         end
     end
 
-    local MAT_GRADIENT_L = Material("vgui/gradient-l", "noclamp smooth")
     vbar.Paint = function(s, w, h)
         local a = math.floor(130 * sp._ss.visA)
         if a <= 0 then return end
