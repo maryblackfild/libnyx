@@ -1,56 +1,13 @@
------------------------------------------------------------------------------
--- libNyx - client-side VGUI component & theming library
--- Original author: MaryBlackfild -- JOIN DISCORD: https://discord.gg/rUEEz4mfXw
---
--- Refactor pass: bug fixes, memory/perf cleanup, structure & documentation.
--- Public API is unchanged (same globals/functions/signatures) so existing
--- callers keep working; only internals were reorganised.
---
--- Contents:
---   1. Bootstrap & engine-table caching
---   2. Shared render resources (materials)
---   3. Scale system (cl_libnyx_ui_scale / cl_libnyx_ui_scalemode)
---   4. Style / theme table
---   5. Fonts
---   6. Sound
---   7. Core render primitives (Draw.Glass / Draw.Panel)
---   8. Frame (window) system
---   9. Fx overlay (flying icons)
---  10. Components: Cell, drag & drop, Checkbox/Radio, Button, Slider,
---      Dropdown, List, VBox, Tabs, CategoryCard, SearchBox
---  11. Smooth scrollbars
---  12. Global Derma menu skin
---  13. Notification system (notification.* / gamemode:AddNotify overrides)
---  14. Dialog boxes (MessageBox / InputBox) + Derma_Message overrides
---  15. Legacy "gSims" glass render-target compatibility shim
------------------------------------------------------------------------------
-
 if SERVER then
     AddCSLuaFile()
     return
 end
-
------------------------------------------------------------------------------
--- 1. Bootstrap & engine-table caching
---
--- Engine/library TABLES are cached as locals (not their individual members).
--- `local surface = surface` lets every `surface.Foo(...)` call below resolve
--- `surface` from a fast local slot instead of a _G lookup, with no per-call-
--- site edits required -- and since Lua tables are reference values, this is
--- fully compatible with code further down that monkey-patches a member
--- (e.g. surface.PlaySound): both the local and the global still point at the
--- same table, so the patch is visible everywhere.
---
--- Frequently-called bare global FUNCTIONS are cached the same way. None of
--- these are ever reassigned by this file, so shadowing them is safe.
------------------------------------------------------------------------------
 local math, string, table   = math, string, table
 local surface, draw, render = surface, draw, render
 local vgui, hook, timer     = vgui, hook, timer
 local cvars, concommand     = cvars, concommand
 local notification, chat    = notification, chat
 local utf8, gmod            = utf8, gmod
-
 local IsValid    = IsValid
 local isfunction = isfunction
 local istable    = istable
@@ -68,38 +25,19 @@ local SysTime    = SysTime
 local FrameTime  = FrameTime
 local ScrW       = ScrW
 local ScrH       = ScrH
-
 local libNyx = libNyx or {}
 libNyx.UI = libNyx.UI or {}
 _G.libNyx = libNyx
-
 local RNDX = include("libnyx/lib/rndx.lua")
-
------------------------------------------------------------------------------
--- 2. Shared render resources
---
--- These materials are reused by almost every component (gradient fills on
--- buttons/rows/chips/cards, search box icons, ...). They are created exactly
--- once here at file-load time. Previously several component constructors
--- (and, worst of all, one Paint callback that runs every single frame)
--- called Material(...) themselves on every invocation instead of reusing
--- these -- see the refactor notes at the bottom of this file.
------------------------------------------------------------------------------
 local MAT_GRADIENT_L  = Material("vgui/gradient-l", "noclamp smooth")
 local MAT_GRADIENT_R  = Material("vgui/gradient-r", "noclamp smooth")
 local MAT_GRADIENT_U  = Material("vgui/gradient-u", "noclamp smooth")
 local MAT_ICON_SEARCH = Material("icon16/magnifier.png", "noclamp smooth")
 local MAT_ICON_CLEAR  = Material("icon16/cross.png", "noclamp smooth")
-
------------------------------------------------------------------------------
--- 3. Scale system
------------------------------------------------------------------------------
 local BASE_W, BASE_H = 1920, 1080
 local cvarScale     = CreateClientConVar("cl_libnyx_ui_scale",     "0",   true, false, "UI scale multiplier (0 = auto).", 0, 2)
 local cvarScaleMode = CreateClientConVar("cl_libnyx_ui_scalemode", "min", true, false, "Auto scale mode: min | h | w | avg")
-
 local _scale, _sx, _sy = 1.0, 1.0, 1.0
-
 local function ComputeScale()
     _sx = math.max(0.001, ScrW() / BASE_W)
     _sy = math.max(0.001, ScrH() / BASE_H)
@@ -117,12 +55,6 @@ local function ComputeScale()
     end
     _scale = math.Clamp(s, 0.75, 1.75)
 end
-
---- Recomputes every scale-dependent Style metric from the current `_scale`.
---- No-op if the Style table hasn't been published yet (defensive: this can
---- only happen if something calls RecomputeScale before the file finishes
---- loading, which shouldn't occur, but a stale/half-initialised Style is a
---- worse failure mode than a harmless early-return).
 local function RecomputeStyle()
     local S = libNyx.UI.Style
     if not S then return end
@@ -139,12 +71,6 @@ local function RecomputeStyle()
     S.headerIndentY   = math.floor(24 * _scale)
     S.comboItemH      = math.floor(34 * _scale)
 end
-
---- Scales a design-space (1920x1080) pixel value to the current screen.
----@param n number Value authored against the 1920x1080 base resolution.
----@param axis? "w"|"h"|"min"|"max" Axis to scale against; defaults to the
----             blended UI scale (`_scale`, from cl_libnyx_ui_scalemode).
----@return integer #Floored, screen-space pixel value.
 function libNyx.UI.Scale(n, axis)
     local v = tonumber(n) or 0
     if axis == "w" then return math.floor(v * _sx) end
@@ -153,72 +79,29 @@ function libNyx.UI.Scale(n, axis)
     if axis == "max" then return math.floor(v * math.max(_sx, _sy)) end
     return math.floor(v * _scale)
 end
-
----@param n number
----@return integer
 function libNyx.UI.ScaleW(n) return libNyx.UI.Scale(n, "w") end
-
----@param n number
----@return integer
 function libNyx.UI.ScaleH(n) return libNyx.UI.Scale(n, "h") end
-
----@param w number
----@param h number
----@return integer scaledW
----@return integer scaledH
 function libNyx.UI.ScalePair(w, h) return libNyx.UI.ScaleW(w), libNyx.UI.ScaleH(h) end
-
---- Recomputes _sx/_sy/_scale from the current screen size and convars, then
---- refreshes every scale-dependent Style metric. Safe to call at any time.
 local function _refresh()
     ComputeScale()
     RecomputeStyle()
 end
-
---- Public hook so other code can force a rescale (e.g. after changing a
---- style convar programmatically rather than through the menu).
 libNyx.UI.RecomputeScale = _refresh
-
 hook.Add("OnScreenSizeChanged", "libNyx.UI.Scale.refresh", _refresh)
 cvars.AddChangeCallback("cl_libnyx_ui_scale",     function() timer.Simple(0, _refresh) end, "libNyx.UI.Scale.cb1")
 cvars.AddChangeCallback("cl_libnyx_ui_scalemode", function() timer.Simple(0, _refresh) end, "libNyx.UI.Scale.cb2")
-
------------------------------------------------------------------------------
--- Legacy "gSims" glass render compatibility shim
---
--- This is a self-contained integration for a *different* addon's rendering
--- API: it wraps that addon's own `Draw.Glass(x, y, w, h, opt)` function with
--- a per-frame render-budget so only a limited number of panels pay for a
--- real blur each frame; everything past the budget (or below the configured
--- minimum area) gets a cheap flat "fake glass" fill instead. This is
--- independent of libNyx's own libNyx.UI.Draw.Glass defined further below.
---
--- BUG FIX: this used to try to patch `Nyx.UI.Draw.Glass` -- `Nyx` (no "lib"
--- prefix) is not a global this file ever defines, so that condition was
--- always false and the entire budget/mode system below (despite being fully
--- implemented, with working convars and a console command) could never
--- actually attach itself to anything. It now patches the same `Draw.Glass`
--- field it captured as `originalGlassRenderer`, which is what the captured
--- variable was clearly for.
------------------------------------------------------------------------------
 local c_mode    = CreateClientConVar("cl_gsims_glass_mode", "1", true, false, "", 0, 2)
 local c_budget  = CreateClientConVar("cl_gsims_glass_budget", "6", true, false, "", 0, 128)
 local c_minarea = CreateClientConVar("cl_gsims_glass_minarea", "16384", true, false, "", 0, 524288)
 local c_str     = CreateClientConVar("cl_gsims_glass_strength", "3", true, false, "", 1, 8)
-
 local function nowMode() return math.floor(c_mode:GetFloat()) end
 local function nowBudget() return math.floor(c_budget:GetFloat()) end
 local function nowMinArea() return math.floor(c_minarea:GetFloat()) end
 local function nowStrength() return math.Clamp(math.floor(c_str:GetFloat()), 1, 8) end
-
 local function DefaultColor(a,b,c,d) return Color(a or 255,b or 255,c or 255,d or 255) end
-
---- Locates whatever blur-capable render library happens to be loaded, under
---- any of the names different RNDX forks/versions have shipped as.
 local function getRNDX()
     return rawget(_G,"rndx") or rawget(_G,"RNDX") or rawget(_G,"Rdx") or rawget(_G,"RDX")
 end
-
 local function callRNDXBlur(x,y,w,h,str)
     local R = getRNDX()
     if not R then return false end
@@ -229,11 +112,7 @@ local function callRNDXBlur(x,y,w,h,str)
     if isfunction(R.Blur) then R.Blur(x,y,w,h,str) return true end
     return false
 end
-
---- Per-frame render-budget state and the two draw paths (cheap flat "fake"
---- glass vs. real stencil-masked blur).
 local GlassEngine = { frameID = -1, used = 0 }
-
 function GlassEngine:BeginFrame()
     local f = FrameNumber()
     if f ~= self.frameID then
@@ -241,13 +120,11 @@ function GlassEngine:BeginFrame()
         self.used = 0
     end
 end
-
 local function DrawRoundedBox(x,y,w,h,r,c) draw.RoundedBox(r, x,y,w,h, c) end
 local function DrawRoundedOutline(x,y,w,h,r,c,wid)
     surface.SetDrawColor(c)
     surface.DrawOutlinedRect(x,y,w,h, wid)
 end
-
 function GlassEngine:Fake(x,y,w,h,opt)
     local r = (opt and opt.radius) or (libNyx.UI.Style.radius or 6)
     local fill = (opt and opt.fill) or (libNyx.UI.Style.glassFill or DefaultColor(255,255,255,14))
@@ -255,7 +132,6 @@ function GlassEngine:Fake(x,y,w,h,opt)
     DrawRoundedBox(x,y,w,h,r,fill)
     if stroke then DrawRoundedOutline(x,y,w,h,r,stroke, libNyx.UI.Style.strokeWidth or 1) end
 end
-
 function GlassEngine:MaskBegin(x,y,w,h,r)
     render.ClearStencil()
     render.SetStencilEnable(true)
@@ -268,11 +144,9 @@ function GlassEngine:MaskBegin(x,y,w,h,r)
     render.SetStencilCompareFunction(STENCIL_EQUAL)
     render.SetStencilPassOperation(STENCIL_KEEP)
 end
-
 function GlassEngine:MaskEnd()
     render.SetStencilEnable(false)
 end
-
 function GlassEngine:Blur(x,y,w,h,opt)
     local r = (opt and opt.radius) or (libNyx.UI.Style.radius or 6)
     local s = nowStrength()
@@ -290,12 +164,7 @@ function GlassEngine:Blur(x,y,w,h,opt)
         self:Fake(x,y,w,h,opt)
     end
 end
-
--- Captured so the patch below only installs itself when there is a real
--- `Draw.Glass` to take over from (and so a future "pass-through" mode has
--- something to call through to without another lookup).
 local originalGlassRenderer = Draw and Draw.Glass
-
 local function gsims_glass(x,y,w,h,opt)
     GlassEngine:BeginFrame()
     local m = nowMode()
@@ -315,11 +184,9 @@ local function gsims_glass(x,y,w,h,opt)
         return GlassEngine:Fake(x,y,w,h,opt)
     end
 end
-
 if Draw and originalGlassRenderer then
     Draw.Glass = gsims_glass
 end
-
 concommand.Add("gsims_glass", function(p,cmd,args)
     local sub = string.lower(args[1] or "")
     if sub == "mode" then
@@ -360,7 +227,6 @@ concommand.Add("gsims_glass", function(p,cmd,args)
         MsgN(msg)
     end
 end)
-
 local Style = {
     bgColor        = Color(10,10,14,150),
     panelColor     = Color(16,18,24,120),
@@ -387,7 +253,6 @@ local Style = {
 }
 libNyx.UI.Style = Style
 libNyx.UI.RecomputeScale()
-
 local baseFont = "Manrope"
 local function hasSystemFont(name)
     local test = ("libNyx.FontCheck.%s"):format(name)
@@ -397,7 +262,6 @@ local function hasSystemFont(name)
     return (w or 0) > 0 and (h or 0) > 0
 end
 if not hasSystemFont(baseFont) then baseFont = "Tahoma" end
-
 local fontCache = {}
 for sz = 10, 200 do
     local key = ("libNyx.%s.%d"):format(baseFont, sz)
@@ -408,8 +272,6 @@ function libNyx.UI.Font(size)
     size = math.Clamp(math.floor(tonumber(size) or 14), 10, 200)
     return fontCache[size]
 end
-
-
 local GRAD_PALETTE = {
     Color( 90,160,255),
     Color(255,125,155),
@@ -425,20 +287,16 @@ local function PalettePick(key)
     local idx = (sum % #GRAD_PALETTE) + 1
     return GRAD_PALETTE[idx]
 end
-
 libNyx.UI.Sounds = {
     hover = "nyx_uniqueui/nyxclick_2.mp3",
     click = "nyx_uniqueui/nyxclick_3.mp3",
 }
-
 function libNyx.UI.PlayHover()
     surface.PlaySound(libNyx.UI.Sounds.hover)
 end
-
 function libNyx.UI.PlayClick()
     surface.PlaySound(libNyx.UI.Sounds.click)
 end
-
 if not libNyx.UI._sfxRedirected then
     local _PlaySound = surface.PlaySound
     function surface.PlaySound(snd)
@@ -451,9 +309,7 @@ if not libNyx.UI._sfxRedirected then
     end
     libNyx.UI._sfxRedirected = true
 end
-
 libNyx.UI._nobg = libNyx.UI._nobg or {}
-
 local function _NoBG(p)
     if not IsValid(p) then return end
     if p.SetPaintBackground then p:SetPaintBackground(false) end
@@ -461,7 +317,6 @@ local function _NoBG(p)
     if p.SetPaintBorderEnabled then p:SetPaintBorderEnabled(false) end
     if p.SetDrawBackground then p:SetDrawBackground(false) end
 end
-
 function libNyx.UI.AutoNoBG(root)
     if not IsValid(root) then return end
     _NoBG(root)
@@ -474,9 +329,7 @@ function libNyx.UI.AutoNoBG(root)
     end
     root._libnyx_nobg_hooked = true
 end
-
 libNyx.UI.Draw = {}
-
 function libNyx.UI.Draw.Glass(x, y, w, h, opts)
     opts = opts or {}
     local r      = opts.radius or Style.radius
@@ -491,7 +344,6 @@ function libNyx.UI.Draw.Glass(x, y, w, h, opts)
         RNDX.DrawOutlined(r, x, y, w, h, stroke, Style.strokeWidth, flags)
     end
 end
-
 function libNyx.UI.CreateFrame(opts)
     opts = opts or {}
     local Style = libNyx.UI.Style
@@ -504,7 +356,6 @@ function libNyx.UI.CreateFrame(opts)
     f:SetSizable(false)
     f:MakePopup()
     libNyx.UI.AutoNoBG(f)
-
     f._targetW = W
     f._targetH = H
     f._minW = math.max(2, math.floor(W * 0.12))
@@ -519,7 +370,6 @@ function libNyx.UI.CreateFrame(opts)
     local cx, cy = ScrW() * 0.5, ScrH() * 0.5
     f:SetSize(f._minW, f._minH)
     f:SetPos(cx - f._minW/2, cy - f._minH/2)
-
     local function easeOutBack(t) local c1=1.70158 local c3=c1+1 local u=t-1 return 1 + c3*(u*u*u) + c1*(u*u) end
     local function easeInCubic(t) return t*t*t end
     local function expApproach(cur, tgt, spd) local k=1-math.exp(-(spd or 10)*FrameTime()) return cur+(tgt-cur)*k end
@@ -533,7 +383,6 @@ function libNyx.UI.CreateFrame(opts)
         libNyx.UI.AutoNoBG(pnl)
         pnl:SetAlpha(math.floor(self._contentAlpha or 0))
     end
-
     local closeBtn
     if libNyx.UI.Components and libNyx.UI.Components.CreateButton then
         closeBtn = libNyx.UI.Components.CreateButton(f, "✕", {variant="ghost", align="center", radius=Style.radius})
@@ -547,11 +396,9 @@ function libNyx.UI.CreateFrame(opts)
         libNyx.UI.AutoNoBG(closeBtn)
         closeBtn.DoClick = function() f:Close() end
     end
-
     function f:PerformLayout(w, h)
         closeBtn:SetPos(w - Style.headerIndentX - closeBtn:GetWide(), Style.headerIndentY)
     end
-
     function f:Think()
         local now = SysTime()
         if self._phase == "opening" then
@@ -596,7 +443,6 @@ function libNyx.UI.CreateFrame(opts)
             end
         end
     end
-
     function f:Paint(w, h)
         local r = math.max(Style.radius, libNyx.UI.Scale(14))
         libNyx.UI.Draw.Glass(0, 0, w, h, {radius = r, fill = Style.bgColor, stroke = true, strokeColor = Style.glassStroke, blurIntensity = 1.1})
@@ -604,7 +450,6 @@ function libNyx.UI.CreateFrame(opts)
             draw.SimpleText(self._title, libNyx.UI.Font(libNyx.UI.Scale(30)), Style.headerIndentX, Style.headerIndentY, Style.textColor, TEXT_ALIGN_LEFT, TEXT_ALIGN_TOP)
         end
     end
-
     local realRemove = f.Remove
     function f:Close()
         if self._phase == "closing" then return end
@@ -619,7 +464,6 @@ function libNyx.UI.CreateFrame(opts)
     end
     return f
 end
-
 function libNyx.UI.Draw.Panel(x, y, w, h, opts)
     opts = opts or {}
     local r        = opts.radius or Style.radius
@@ -645,10 +489,8 @@ function libNyx.UI.Draw.Panel(x, y, w, h, opts)
         RNDX.DrawOutlined(r, x, y, w, h, opts.outlineColor or Style.glassStroke, opts.outline, flags)
     end
 end
-
 libNyx.UI.Components = libNyx.UI.Components or {}
 local Components = libNyx.UI.Components
-
 libNyx.UI._fx = libNyx.UI._fx or nil
 local function FX()
     if IsValid(libNyx.UI._fx) then return libNyx.UI._fx end
@@ -687,7 +529,6 @@ local function FX()
     libNyx.UI._fx = pnl
     return pnl
 end
-
 function libNyx.UI.FlyIcon(mat, sx, sy, ex, ey, size, dur, cb)
     local fx = FX()
     fx:SetVisible(true)
@@ -699,7 +540,6 @@ function libNyx.UI.FlyIcon(mat, sx, sy, ex, ey, size, dur, cb)
         cb = cb
     })
 end
-
 local function FitModel(mp)
     if not IsValid(mp) or not IsValid(mp.Entity) then return end
     local mn, mx = mp.Entity:GetRenderBounds()
@@ -715,17 +555,14 @@ local function FitModel(mp)
     mp:SetAmbientLight(Vector(255, 255, 255))
     mp:SetDirectionalLight(BOX_TOP, Color(255,255,255))
 end
-
 function Components.CreateCell(parent, opts)
     opts = opts or {}
     local sz    = opts.size or libNyx.UI.Scale(88)
     local r     = opts.radius or libNyx.UI.Scale(14)
     local tint  = opts.tint or Style.accentColor
-
     local cell  = vgui.Create("DButton", parent)
     cell:SetText("")
     cell:SetSize(sz, sz)
-
     cell._radius    = r
     cell._tint      = tint
     cell._iconMat   = nil
@@ -734,12 +571,10 @@ function Components.CreateCell(parent, opts)
     cell._info      = nil
     cell._infoBox   = nil
     cell._lastScreenPos = {x = 0, y = 0}
-
     local function expApproach(cur, tgt, spd)
         local k = 1 - math.exp(-(spd or 10) * FrameTime())
         return cur + (tgt - cur) * k
     end
-
     local function normalizeTags(t)
         local out = {}
         if not istable(t) then return out end
@@ -755,23 +590,19 @@ function Components.CreateCell(parent, opts)
         end
         return out
     end
-
     local function removeInfoBox()
         if IsValid(cell._infoBox) then
             cell._infoBox:Remove()
             cell._infoBox = nil
         end
     end
-
     local function ensureInfoBox()
         if IsValid(cell._infoBox) then return cell._infoBox end
         if not cell._info then return nil end
-
         local ib = vgui.Create("DPanel")
         ib:SetDrawOnTop(true)
         ib:SetMouseInputEnabled(true)
         ib:SetKeyboardInputEnabled(false)
-
         ib._title = tostring(cell._info.title or "")
         ib._desc  = tostring(cell._info.desc or "")
         ib._tags  = normalizeTags(cell._info.tags)
@@ -782,20 +613,16 @@ function Components.CreateCell(parent, opts)
         ib._durClose  = 0.14
         ib._vis       = 0
         ib._hoverA    = 0
-
         surface.SetFont(libNyx.UI.Font(libNyx.UI.Scale(20)))
         local tw, th = surface.GetTextSize(ib._title ~= "" and ib._title or " ")
         surface.SetFont(libNyx.UI.Font(libNyx.UI.Scale(16)))
         local dw, dh = surface.GetTextSize(ib._desc ~= "" and ib._desc or " ")
-
         local pad   = libNyx.UI.Scale(12)
         local gap   = libNyx.UI.Scale(8)
         local tagH  = libNyx.UI.Scale(22)
         local ww    = math.max(libNyx.UI.Scale(240), tw + pad*2, dw + pad*2)
         local hh    = pad + th + (ib._desc ~= "" and (gap + dh) or 0) + ( (#ib._tags>0) and (gap + tagH) or 0 ) + pad
-
         ib:SetSize(ww, hh)
-
         local function place()
             local sx, sy = cell:LocalToScreen(0, 0)
             local cw, ch = cell:GetSize()
@@ -815,7 +642,6 @@ function Components.CreateCell(parent, opts)
             end
             local tgtH = s:IsHovered() and 1 or 0
             s._hoverA = expApproach(s._hoverA or 0, tgtH, 10)
-
             local now = SysTime()
             if s._state == "opening" then
                 local t = math.TimeFraction(s._t0, s._t0 + s._durOpen, now)
@@ -842,7 +668,6 @@ function Components.CreateCell(parent, opts)
                 end
             end
         end
-
         ib.Paint = function(s, w, h)
             local v = math.Clamp(s._vis or 0, 0, 1)
             local sc   = Lerp(v, 0.92, 1.00)
@@ -853,7 +678,6 @@ function Components.CreateCell(parent, opts)
             local fillCol   = Color(16,18,24, math.floor(baseFillA * v))
             local strokeCol = Color(255,255,255, math.floor(strokeA * v))
             local blurI     = 1.15 + 0.20 * (s._hoverA or 0)
-
             libNyx.UI.Draw.Glass(dx, dy, math.floor(w*sc), math.floor(h*sc), {
                 radius        = libNyx.UI.Scale(10),
                 fill          = fillCol,
@@ -861,16 +685,13 @@ function Components.CreateCell(parent, opts)
                 strokeColor   = strokeCol,
                 blurIntensity = blurI
             })
-
             local ca = math.floor(255 * v)
             local slide = math.floor(libNyx.UI.Scale(4) * (1 - v))
-
             surface.SetFont(libNyx.UI.Font(libNyx.UI.Scale(20)))
             draw.SimpleText(s._title or "", libNyx.UI.Font(libNyx.UI.Scale(20)),
                 dx + libNyx.UI.Scale(12), dy + libNyx.UI.Scale(12) + slide,
                 Color(Style.textColor.r, Style.textColor.g, Style.textColor.b, ca),
                 TEXT_ALIGN_LEFT, TEXT_ALIGN_TOP)
-
             if (s._desc or "") ~= "" then
                 surface.SetFont(libNyx.UI.Font(libNyx.UI.Scale(16)))
                 local _, th = surface.GetTextSize(s._title ~= "" and s._title or " ")
@@ -879,7 +700,6 @@ function Components.CreateCell(parent, opts)
                     Color(255,255,255, math.floor(220 * v)),
                     TEXT_ALIGN_LEFT, TEXT_ALIGN_TOP)
             end
-
             if #s._tags > 0 then
                 local pad = libNyx.UI.Scale(12)
                 local tagH = libNyx.UI.Scale(22)
@@ -905,18 +725,15 @@ function Components.CreateCell(parent, opts)
                 end
             end
         end
-
         ib.OnCursorExited = function(s)
             if not cell:IsHovered() and s._state ~= "closing" then
                 s._state = "closing"
                 s._t0 = SysTime()
             end
         end
-
         cell._infoBox = ib
         return ib
     end
-
     function cell:SetItemIcon(mat, size, info)
         if isstring(mat) then mat = Material(mat, "noclamp smooth") end
         self._iconMat = mat
@@ -926,7 +743,6 @@ function Components.CreateCell(parent, opts)
         removeInfoBox()
         self:InvalidateLayout(true)
     end
-
     function cell:SetItemModel(path)
         self._iconMat = nil
         if not IsValid(self._mp) then
@@ -939,7 +755,6 @@ function Components.CreateCell(parent, opts)
         self._mp:SetModel(path or "models/props_c17/oildrum001.mdl")
         removeInfoBox()
     end
-
     function cell:ClearItem()
         self._iconMat = nil
         if IsValid(self._mp) then self._mp:Remove() self._mp = nil end
@@ -947,16 +762,13 @@ function Components.CreateCell(parent, opts)
         removeInfoBox()
         self:InvalidateLayout(false)
     end
-
     function cell:HasItem()
         return self._iconMat ~= nil or IsValid(self._mp)
     end
-
     function cell:GetCenterScreen()
         local x, y = self:LocalToScreen(self:GetWide()/2, self:GetTall()/2)
         return x, y
     end
-
     function cell:PerformLayout(w, h)
         local dock = self:GetDock()
         if dock == LEFT or dock == RIGHT then
@@ -968,13 +780,11 @@ function Components.CreateCell(parent, opts)
             self:SetSize(side, side)
         end
     end
-
     function cell:OnSizeChanged(w, h)
         local side = math.min(w, h)
         self._iconSize = math.floor(side * 0.6)
         self._lastScreenPos.x, self._lastScreenPos.y = -1, -1
     end
-
     function cell:OnCursorEntered()
         if self:HasItem() and self._info then
             local ib = ensureInfoBox()
@@ -984,7 +794,6 @@ function Components.CreateCell(parent, opts)
             end
         end
     end
-
     function cell:OnCursorExited()
         local ib = self._infoBox
         if IsValid(ib) and (not ib:IsHovered()) and ib._state ~= "closing" then
@@ -992,11 +801,9 @@ function Components.CreateCell(parent, opts)
             ib._t0 = SysTime()
         end
     end
-
     function cell:OnRemove()
         removeInfoBox()
     end
-
     cell.Paint = function(s, w, h)
         libNyx.UI.Draw.Glass(0, 0, w, h, {
             radius        = s._radius,
@@ -1005,24 +812,19 @@ function Components.CreateCell(parent, opts)
             strokeColor   = Style.glassStroke,
             blurIntensity = 1.05
         })
-
         if s._iconMat then
             surface.SetDrawColor(255, 255, 255, 255)
             surface.SetMaterial(s._iconMat)
             surface.DrawTexturedRect((w - s._iconSize)/2, (h - s._iconSize)/2, s._iconSize, s._iconSize)
         end
     end
-
     return cell
 end
-
 libNyx.UI._drag = libNyx.UI._drag or {active=false}
-
 local function easeInOutCubic(t)
     if t < 0.5 then return 4*t*t*t end
     t = (t - 1); return 1 + 4*t*t*t
 end
-
 local function ensureDragHook()
     if libNyx.UI._drag._hooked then return end
     hook.Add("PostRenderVGUI", "zzz.libNyx.UI.DragOverlay", function()
@@ -1056,7 +858,6 @@ local function ensureDragHook()
                 if d.onDone then pcall(d.onDone) end
                 return
             end
-
             local e = easeInOutCubic(math.Clamp(t, 0, 1))
             boxSize  = Lerp(e, d.boxTo,    d.boxTo * 0.92)
             rad      = Lerp(e, d.radTo,    d.radTo * 0.85)
@@ -1116,7 +917,6 @@ local function ensureDragHook()
     end)
     libNyx.UI._drag._hooked = true
 end
-
 function libNyx.UI.StartDragIcon(src, mat, size, offx, offy)
     if isstring(mat) then mat = Material(mat, "noclamp smooth") end
     local S    = libNyx.UI.Style
@@ -1129,9 +929,7 @@ function libNyx.UI.StartDragIcon(src, mat, size, offx, offy)
         origIconSize = base,
         offx         = offx or 0,
         offy         = offy or 0,
-
         info         = (IsValid(src) and src._info) or nil,
-
         phase    = "pickup",
         t0       = SysTime(),
         dur      = 0.16,
@@ -1145,7 +943,6 @@ function libNyx.UI.StartDragIcon(src, mat, size, offx, offy)
         _hx=nil,_hy=nil,_hw=nil,_hh=nil,_hr=nil,_ha=0,
     }
 end
-
 function libNyx.UI.StopDragIcon(applyTo)
     local d = libNyx.UI._drag
     if not d or not d.active then return end
@@ -1154,15 +951,12 @@ function libNyx.UI.StopDragIcon(applyTo)
     d.t0    = SysTime()
     d.dur   = 0.18
 end
-
 local function libnyx_find_cell_under_cursor()
     local p = vgui.GetHoveredPanel()
     while IsValid(p) and not p._isInteractiveCell do p = p:GetParent() end
     return p
 end
-
 libNyx.UI._inv = libNyx.UI._inv or {holding=nil, from=nil}
-
 function Components.CreateInteractiveCell(parent, opts)
     local cell = Components.CreateCell(parent, opts)
     cell._isInteractiveCell = true
@@ -1191,7 +985,6 @@ function Components.CreateInteractiveCell(parent, opts)
     end
     return cell
 end
-
 libNyx.UI._rippleStyle = libNyx.UI._rippleStyle or 1
 function libNyx.UI.SetRippleStyle(style)
     if isstring(style) then
@@ -1202,7 +995,6 @@ function libNyx.UI.SetRippleStyle(style)
     end
 end
 function libNyx.UI.GetRippleStyle() return libNyx.UI._rippleStyle end
-
 local function makeRipple(btn, style)
     btn._ripples = {}
     btn._rippleDur   = 0.45
@@ -1213,7 +1005,6 @@ local function makeRipple(btn, style)
         self._rippleStyle = (tonumber(s) == 2 or string.lower(tostring(s)) == "ring") and 2 or 1
     end
 end
-
 local function paintRipples(self, w, h, color)
     local now = SysTime()
     local variant = self._rippleStyle or libNyx.UI.GetRippleStyle()
@@ -1245,10 +1036,8 @@ local function paintRipples(self, w, h, color)
         end
     end
 end
-
 function Components.CreateCheckbox(parent, opts)
     opts = opts or {}
-
     local box = vgui.Create("DButton", parent)
     box:SetText("")
     box:SetCursor("hand")
@@ -1262,9 +1051,7 @@ function Components.CreateCheckbox(parent, opts)
     box._anim     = box._checked and 1 or 0
     box._onChange = opts.onChange
     box._group    = opts.group
-
     libNyx.UI._checkboxGroups = libNyx.UI._checkboxGroups or {}
-
     local function ensureGroup(self, name)
         if not name or name == "" then return end
         local t = libNyx.UI._checkboxGroups
@@ -1292,19 +1079,16 @@ function Components.CreateCheckbox(parent, opts)
             end
         end
     end
-
     function box:SetGroup(name)
         if self._group == name then return end
         leaveGroup(self, self._group)
         self._group = name
         ensureGroup(self, name)
     end
-
     if box._variant == "radio" and (not box._group or box._group == "") then
         box._group = "auto_radio_group_" .. tostring(parent or box:GetParent() or "root")
     end
     ensureGroup(box, box._group)
-
     function box:ControlSize()
         local h = self._size
         if self._variant == "radio" then
@@ -1313,7 +1097,6 @@ function Components.CreateCheckbox(parent, opts)
         local mul = (self._variant == "switch") and 1.95 or 1.65
         return math.floor(h * mul), h
     end
-
     function box:_RefreshSize()
         local cw, ch = self:ControlSize()
         surface.SetFont(self._font)
@@ -1322,7 +1105,6 @@ function Components.CreateCheckbox(parent, opts)
         local h = math.max(ch, libNyx.UI.Scale(28))
         self:SetSize(w, h)
     end
-
     function box:SetLabel(t) self._label = tostring(t or "") self:_RefreshSize() end
     function box:SetVariant(v)
         v = string.lower(v or "switch")
@@ -1336,7 +1118,6 @@ function Components.CreateCheckbox(parent, opts)
         end
         self:_RefreshSize()
     end
-
     function box:SetValue(b)
         b = tobool(b)
         if self._variant == "radio" then
@@ -1357,7 +1138,6 @@ function Components.CreateCheckbox(parent, opts)
     function box:GetValue() return self._checked end
     function box:SetOnChange(fn) self._onChange = fn end
     function box:OnCursorEntered() end
-
     function box:DoClick()
         if self._variant == "radio" then
             self._checked = not self._checked
@@ -1369,23 +1149,19 @@ function Components.CreateCheckbox(parent, opts)
         end
         surface.PlaySound("ui/buttonclickrelease.wav")
     end
-
     function box:OnRemove()
         leaveGroup(self, self._group)
     end
-
     box.Think = function(self)
         local target = self._checked and 1 or 0
         self._anim = Lerp(FrameTime() * 12, self._anim or target, target)
     end
-
     box.Paint = function(self, w, h)
         local tint = self._tint
         local cw, ch = self:ControlSize()
         local cx = 0
         local cy = (h - ch) / 2
         local a = math.Clamp(self._anim or 0, 0, 1)
-
         if self._variant == "radio" then
             local r = math.floor(ch/2)
             local strokeA = 38 + (120 - 38) * a
@@ -1415,17 +1191,14 @@ function Components.CreateCheckbox(parent, opts)
                 RNDX.DrawOutlined(knob/2, kx, cy + pad, knob, knob, Color(255,255,255, math.floor(Lerp(a, 40, 140))), 1)
             end
         end
-
         if self._label ~= "" then
             local xText = cx + cw + self._gap
             draw.SimpleText(self._label, self._font, xText, h/2, Style.textColor, TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER)
         end
     end
-
     box:_RefreshSize()
     return box
 end
-
 function Components.CreateButton(parent, text, opts)
     opts = opts or {}
     local btn = vgui.Create("DButton", parent)
@@ -1538,7 +1311,6 @@ function Components.CreateButton(parent, text, opts)
     end
     return btn
 end
-
 function libNyx.UI.Components.CreateSlider(parent, opts)
     opts = opts or {}
     local SUI   = libNyx.UI
@@ -1546,7 +1318,6 @@ function libNyx.UI.Components.CreateSlider(parent, opts)
     local sld   = vgui.Create("DPanel", parent)
     sld:SetTall(Style.btnHeight)
     SUI.AutoNoBG(sld)
-
     sld._min      = tonumber(opts.min) or 0
     sld._max      = tonumber(opts.max) or 100
     sld._dec      = math.max(0, tonumber(opts.decimals) or 0)
@@ -1561,19 +1332,16 @@ function libNyx.UI.Components.CreateSlider(parent, opts)
     sld._lastText = ""
     sld._font     = SUI.Font(SUI.Scale(18))
     sld._fontNum  = SUI.Font(SUI.Scale(18))
-
     local function fmtn(v,d) return (d or 0) <= 0 and tostring(math.Round(v)) or string.format("%."..d.."f", v) end
     local function fracFromValue(v) local r=sld._max - sld._min if r<=0 then return 0 end return (v - sld._min)/r end
     local function valueFromFrac(f) return sld._min + f*(sld._max - sld._min) end
     local function clamp01(x) return x<0 and 0 or (x>1 and 1 or x) end
     local function expApproach(cur,tgt,spd) local k=1-math.exp(-(spd or 12)*FrameTime()) return cur+(tgt-cur)*k end
-
     local function counterWidth(txt)
         surface.SetFont(sld._fontNum)
         local w = select(1, surface.GetTextSize(txt))
         return math.Clamp(w + SUI.Scale(24), SUI.Scale(50), SUI.Scale(140))
     end
-
     local function trackBounds(w,h)
         local num = fmtn(sld._lerpVal, sld._dec)
         local ta  = counterWidth(num)
@@ -1583,11 +1351,9 @@ function libNyx.UI.Components.CreateSlider(parent, opts)
         local ty  = math.floor(h*0.5 - th*0.5)
         return tx, ty, tw, th, ta
     end
-
     function sld:SetMin(v) self._min = tonumber(v) or self._min self:SetValue(self._value) end
     function sld:SetMax(v) self._max = tonumber(v) or self._max self:SetValue(self._value) end
     function sld:SetDecimals(d) self._dec = math.max(0, tonumber(d) or self._dec) end
-
     function sld:SetValue(v)
         local nv = math.Clamp(tonumber(v) or self._value, self._min, self._max)
         if nv == self._value then return end
@@ -1595,7 +1361,6 @@ function libNyx.UI.Components.CreateSlider(parent, opts)
         if isfunction(self.OnValueChanged) then self:OnValueChanged(nv) end
     end
     function sld:GetValue() return self._value end
-
     function sld:OnMousePressed(mc)
         if mc ~= MOUSE_LEFT then return end
         local lx, ly = self:LocalCursorPos()
@@ -1607,27 +1372,23 @@ function libNyx.UI.Components.CreateSlider(parent, opts)
             self:SetValue(valueFromFrac(f))
         end
     end
-
     function sld:OnMouseReleased(mc)
         if mc ~= MOUSE_LEFT then return end
         self._dragging = false
         self:MouseCapture(false)
     end
-
     function sld:OnCursorMoved(x,y)
         if not self._dragging then return end
         local tx, _, tw = trackBounds(self:GetWide(), self:GetTall())
         local f = clamp01((x - tx) / tw)
         self:SetValue(valueFromFrac(f))
     end
-
     function sld:OnMouseWheeled(dl)
         local base = (self._max - self._min) * 0.01
         local gran = self._dec > 0 and (1 / (10 ^ self._dec)) or 1
         local step = math.max(base, gran)
         self:SetValue(self._value + step * (dl > 0 and 1 or -1))
     end
-
     function sld:Think()
         self._lerpVal = Lerp(FrameTime()*12, self._lerpVal or self._value, self._value)
         local txt = fmtn(self._lerpVal, self._dec)
@@ -1641,20 +1402,16 @@ function libNyx.UI.Components.CreateSlider(parent, opts)
         self._pulse  = expApproach(self._pulse, 0, 8)
         if self._dragging then self:SetCursor("sizewe") else self:SetCursor("hand") end
     end
-
     function sld:Paint(w,h)
         local tx, ty, tw, th = trackBounds(w,h)
         local f  = (self._max - self._min) == 0 and 0 or (self._lerpVal - self._min) / (self._max - self._min)
         local kn = SUI.Scale(16) + SUI.Scale(6) * self._knobA
-
         SUI.Draw.Panel(tx, ty, tw, th, {radius = th/2, color = Color(30,34,42,130 + math.floor(30*self._knobA)), glass = true})
-
         local minCenter = kn * 0.5
         local maxCenter = math.max(minCenter, tw - kn * 0.5)
         local centerOff = math.Clamp(tw * f, minCenter, maxCenter)
         local kx = math.floor(tx + centerOff)
         local ky = math.floor(h*0.5 - kn*0.5)
-
         local fillW = math.max(th, math.min(tw, kx - tx))
         if not MAT_GRADIENT_L:IsError() then
             local gcol = Color(self._tint.r, self._tint.g, self._tint.b, 170)
@@ -1663,19 +1420,15 @@ function libNyx.UI.Components.CreateSlider(parent, opts)
         else
             draw.RoundedBox(th/2, tx, ty, fillW, th, self._tint)
         end
-
         SUI.Draw.Panel(kx - kn/2, ky, kn, kn, {radius = kn/2, color = Color(240,240,255, math.floor(180 + 50*self._knobA)), glass = true, stroke = true})
-
         local num = fmtn(self._lerpVal, self._dec)
         local scale = 1 + 0.40 * self._pulse
         local fs = SUI.Font(math.Clamp(math.floor(18 * scale), 10, 200))
         draw.SimpleText(num, fs, w - SUI.Scale(8), h/2, Style.textColor, TEXT_ALIGN_RIGHT, TEXT_ALIGN_CENTER)
     end
-
     sld._lastText = fmtn(sld._value, sld._dec)
     return sld
 end
-
 function Components.CreateDropdown(parent, opts)
     opts = opts or {}
     local combo = vgui.Create("DComboBox", parent)
@@ -1792,7 +1545,6 @@ function Components.CreateDropdown(parent, opts)
     end
     return combo
 end
-
 function Components.CreateList(parent, opts)
     opts = opts or {}
     local list = vgui.Create("DScrollPanel", parent)
@@ -1917,7 +1669,6 @@ function Components.CreateList(parent, opts)
     end
     return list
 end
-
 function Components.CreateVBox(parent, opts)
     opts = opts or {}
     local w = opts.w or libNyx.UI.Scale(140)
@@ -1939,7 +1690,6 @@ function Components.CreateVBox(parent, opts)
     pnl._modelA    = 0
     pnl._spinA     = 0
     if isstring(pnl._icon) then pnl._icon = Material(pnl._icon, "noclamp smooth") end
-
     function pnl:DoClick()
         surface.PlaySound("nyx_uniqueui/nyxclick_3.wav")
         if isfunction(self._onClick) then self._onClick(self) end
@@ -1951,7 +1701,6 @@ function Components.CreateVBox(parent, opts)
     function pnl:OnCursorExited()
         self._hover = false
     end
-
     local wantModel = (pnl._variant == "model") or (pnl._variant == "vertical_gradient" and isstring(opts.model) and opts.model ~= "")
     if wantModel then
         pnl._mp = vgui.Create("DModelPanel", pnl)
@@ -1984,7 +1733,6 @@ function Components.CreateVBox(parent, opts)
         end
         timer.Simple(0, function() if IsValid(pnl._mp) then FitModelLocal(pnl._mp) end end)
     end
-
     local function lighten(c, k)
         return Color(
             math.Clamp(c.r + (255 - c.r) * k, 0, 255),
@@ -1997,7 +1745,6 @@ function Components.CreateVBox(parent, opts)
         local k = 1 - math.exp(-(spd or 10) * FrameTime())
         return cur + (tgt - cur) * k
     end
-
     pnl.Think = function(self)
         self._hoverA = expApproach(self._hoverA, self._hover and 1 or 0, 8)
         self._pulseT = (self._pulseT + FrameTime() * (0.8 + 1.2 * self._hoverA)) % (math.pi * 2)
@@ -2017,7 +1764,6 @@ function Components.CreateVBox(parent, opts)
             self._mp:SetFOV(Lerp(self._modelA, 28, 26))
         end
     end
-
     pnl.Paint = function(self, w, h)
         libNyx.UI.Draw.Panel(0, 0, w, h, {radius = Style.radius, color = Color(0,0,0,0), glass = true, stroke = true})
         local cx, cy = w * 0.5, h * 0.5
@@ -2040,12 +1786,6 @@ function Components.CreateVBox(parent, opts)
             )
             local gh  = math.floor(h * Lerp(self._hoverA, 0.65, 0.78))
             local y0  = h - gh - math.floor(libNyx.UI.Scale(4) * self._hoverA)
-            -- NOTE: previously this built a full RNDX rect-builder object here
-            -- every single frame (Material()+Radii()+Color() chain) purely to
-            -- call :GetMaterial() on it -- i.e. to read back the exact material
-            -- constant it had just been given. The builder was never even
-            -- drawn. Using the cached material directly is both correct and
-            -- avoids a per-frame allocation in a hot Paint callback.
             surface.SetMaterial(MAT_GRADIENT_U)
             surface.SetDrawColor(col)
             surface.DrawTexturedRectUV(0, y0, w, gh, 0, 1, 1, 0)
@@ -2076,7 +1816,6 @@ function Components.CreateVBox(parent, opts)
             surface.DrawTexturedRect(cx - s/2, cy - s/2 - libNyx.UI.Scale(10), s, s)
         end
     end
-
     pnl.PaintOver = function(self, w, h)
         local padX = libNyx.UI.Scale(10)
         local padY = libNyx.UI.Scale(6)
@@ -2089,27 +1828,21 @@ function Components.CreateVBox(parent, opts)
         libNyx.UI.Draw.Glass(x, y, bw, bh, {radius = libNyx.UI.Scale(8), fill = Color(16,18,24, math.floor(150 + 30 * self._hoverA)), stroke = true, strokeColor = Color(255,255,255,20), blurIntensity = 1.0})
         draw.SimpleText(txt, self._titleFont, x + bw/2, y + bh/2, Style.textColor, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
     end
-
     return pnl
 end
-
 function Components.CreateTabs(parent, opts)
     opts = opts or {}
-
     local pnl = vgui.Create("DPanel", parent)
     pnl._items    = istable(opts.items) and opts.items or {}
     pnl._active   = opts.default
     pnl._onChange = opts.onChange
-
     pnl:SetPaintBackground(false)
     pnl:SetPaintBorderEnabled(false)
     pnl:SetPaintBackgroundEnabled(false)
     pnl.Paint = nil
-
     local font   = libNyx.UI.Font(libNyx.UI.Scale(18))
     local tabH   = math.max(libNyx.UI.Scale(42), tonumber(opts.height or 0))
     local padY   = libNyx.UI.Scale(6)
-
     local rail = vgui.Create("DPanel", pnl)
     rail:Dock(FILL)
     rail:DockMargin(Style.padding, padY, Style.padding, padY)
@@ -2117,7 +1850,6 @@ function Components.CreateTabs(parent, opts)
     rail:SetPaintBorderEnabled(false)
     rail:SetPaintBackgroundEnabled(false)
     rail.Paint = nil
-
     pnl._btns = {}
     rail._indX = 0
     rail._indW = 0
@@ -2126,7 +1858,6 @@ function Components.CreateTabs(parent, opts)
     rail._tgtW = 0
     rail._tgtH = tabH
     rail._haveInd = false
-
     local function syncIndicatorTo(id, snap)
         local b = pnl._btns[id]
         if not IsValid(b) then rail._haveInd = false return end
@@ -2143,12 +1874,10 @@ function Components.CreateTabs(parent, opts)
         end
         rail:InvalidateLayout(false)
     end
-
     local function expApproach(cur, tgt, speed)
         local k = 1 - math.exp(-(speed or 12) * FrameTime())
         return cur + (tgt - cur) * k
     end
-
     rail.Think = function(s)
         if not s._haveInd then return end
         local hovering = false
@@ -2161,7 +1890,6 @@ function Components.CreateTabs(parent, opts)
         s._indW = expApproach(s._indW or s._tgtW, s._tgtW, 12)
         s._indH = expApproach(s._indH or s._tgtH, s._tgtH, 9)
     end
-
     rail.Paint = function(s, w, h)
         if not s._haveInd then return end
         local r = libNyx.UI.Scale(10)
@@ -2175,7 +1903,6 @@ function Components.CreateTabs(parent, opts)
             RNDX.DrawMaterial(r, bx, by, bw, bh, c, MAT_GRADIENT_L, 0)
         end
     end
-
     local function makeBtn(it, idx)
         local b = vgui.Create("DButton", rail)
         b:SetText("")
@@ -2185,18 +1912,15 @@ function Components.CreateTabs(parent, opts)
         b:Dock(LEFT)
         b:DockMargin(libNyx.UI.Scale(6), libNyx.UI.Scale(6), libNyx.UI.Scale(6), libNyx.UI.Scale(6))
         b:SetTall(tabH)
-
         b._id       = tostring(it.id or it.label or idx or "")
         b._label    = tostring(it.label or b._id)
         b._icon     = isstring(it.icon) and Material(it.icon, "noclamp smooth") or it.icon
         b._iconSize = libNyx.UI.Scale(18)
-
         surface.SetFont(font)
         local tw   = surface.GetTextSize(b._label)
         local padX = libNyx.UI.Scale(16)
         local icw  = (b._icon and not b._icon:IsError()) and (b._iconSize + libNyx.UI.Scale(6)) or 0
         b:SetWide(padX * 2 + icw + tw)
-
         makeRipple(b, 2)
         function b:OnCursorEntered()
             local mx, my = gui.MousePos()
@@ -2205,13 +1929,11 @@ function Components.CreateTabs(parent, opts)
             table.insert(self._ripples, {x = mx, y = my, t0 = SysTime()})
             if libNyx.UI and libNyx.UI.PlayHover then libNyx.UI.PlayHover() end
         end
-
         function b:DoClick()
             pnl:SetActive(self._id)
             if isfunction(pnl._onChange) then pnl._onChange(self._id, self) end
             surface.PlaySound("ui/buttonclickrelease.wav")
         end
-
         b.Paint = function(s, w, h)
             local selected = (pnl._active == s._id)
             local r = libNyx.UI.Scale(10)
@@ -2232,11 +1954,9 @@ function Components.CreateTabs(parent, opts)
             )
             paintRipples(s, w, h, Style.textColor)
         end
-
         pnl._btns[b._id] = b
         return b
     end
-
     function pnl:SetItems(items)
         for _, c in ipairs(rail:GetChildren()) do if IsValid(c) then c:Remove() end end
         pnl._btns = {}
@@ -2253,29 +1973,23 @@ function Components.CreateTabs(parent, opts)
             syncIndicatorTo(pnl._active, true)
         end)
     end
-
     function pnl:SetActive(id)
         pnl._active = id
         syncIndicatorTo(id, false)
         rail:InvalidateLayout(false)
     end
-
     function pnl:GetActive()
         return pnl._active
     end
-
     pnl.SetOnChange = function(self, fn) self._onChange = fn end
-
     pnl:SetItems(pnl._items)
     if pnl._active == nil and #pnl._items > 0 then
         pnl:SetActive(pnl._items[1].id or pnl._items[1].label)
     else
         pnl:SetActive(pnl._active)
     end
-
     return pnl
 end
-
 function Components.CreateCategoryCard(parent, opts)
     opts = opts or {}
     local card = vgui.Create("DButton", parent)
@@ -2378,7 +2092,6 @@ function Components.CreateCategoryCard(parent, opts)
     end
     return card
 end
-
 function Components.CreateSearchBox(parent, opts)
     opts = opts or {}
     local box = vgui.Create("DPanel", parent)
@@ -2391,7 +2104,6 @@ function Components.CreateSearchBox(parent, opts)
     box._gradA       = 0
     box._langID      = "EN"
     box._lastText    = ""
-
     local btnClear = vgui.Create("DButton", box)
     btnClear:SetText("")
     btnClear:Dock(RIGHT)
@@ -2412,7 +2124,6 @@ function Components.CreateSearchBox(parent, opts)
         if isfunction(opts.onClear) then opts.onClear() end
         if isfunction(opts.onChange) then opts.onChange("") end
     end
-
     local entry = vgui.Create("DTextEntry", box)
     entry:SetUpdateOnType(true)
     entry:SetText("")
@@ -2422,18 +2133,15 @@ function Components.CreateSearchBox(parent, opts)
     entry:SetHistoryEnabled(false)
     if entry.SetDrawLanguageID then entry:SetDrawLanguageID(false) end
     box.Entry = entry
-
     function box:PerformLayout(w,h)
         local leftPad  = libNyx.UI.Scale(12) + libNyx.UI.Scale(16) + libNyx.UI.Scale(8)
         local rightPad = btnClear:GetWide() + libNyx.UI.Scale(6)
         entry:SetPos(leftPad, 0)
         entry:SetSize(w - leftPad - rightPad, h)
     end
-
     function entry:Paint(w,h)
         self:DrawTextEntryText(Style.textColor, Color(255,255,255,20), Style.textColor)
     end
-
     function entry:OnChange()
         if not isfunction(opts.onChange) then return end
         local name = "libnyx_search_" .. tostring(box)
@@ -2443,24 +2151,19 @@ function Components.CreateSearchBox(parent, opts)
             end
         end)
     end
-
     function entry:OnEnter()
         if isfunction(opts.onSubmit) then opts.onSubmit(self:GetText() or "") end
     end
-
     function entry:OnGetFocus()
         box._focused = true
     end
-
     function entry:OnLoseFocus()
         box._focused = false
     end
-
     local function expApproach(cur, tgt, spd)
         local k = 1 - math.exp(-(spd or 10) * FrameTime())
         return cur + (tgt - cur) * k
     end
-
     local function isCyrillicChar(ch)
         if not ch or ch == "" then return false end
         if utf8 and utf8.codepoint then
@@ -2471,7 +2174,6 @@ function Components.CreateSearchBox(parent, opts)
         end
         return false
     end
-
     box.Think = function(self)
         local f = self._focused and 1 or 0
         self._focusA = expApproach(self._focusA, f, 9)
@@ -2500,7 +2202,6 @@ function Components.CreateSearchBox(parent, opts)
         end
         if id then self._langID = id end
     end
-
     function box:Paint(w, h)
         libNyx.UI.Draw.Glass(0, 0, w, h, {radius = self._radius, fill = Color(16,18,24,110), stroke = true, strokeColor = Style.glassStroke, blurIntensity = 1.0})
         local baseCov = 0.45
@@ -2541,15 +2242,12 @@ function Components.CreateSearchBox(parent, opts)
             end
         end
     end
-
     function box:GetText() return entry:GetText() end
     function box:SetText(t) entry:SetText(t or "") end
     function box:Focus() entry:RequestFocus() end
     return box
 end
-
 libNyx.UI.SmoothScroll = libNyx.UI.SmoothScroll or {}
-
 function libNyx.UI.SmoothScroll.ApplyToScrollPanel(sp, opts)
     if not IsValid(sp) or sp._libnyxSmoothInstalled then return end
     local vbar = sp:GetVBar()
@@ -2567,7 +2265,6 @@ function libNyx.UI.SmoothScroll.ApplyToScrollPanel(sp, opts)
     sp._ss.visA = 0
     sp._ss.lastPing = 0
     sp._ss.drag = false
-
     local function expApproach(cur, tgt, spd)
         local k = 1 - math.exp(-(spd) * FrameTime())
         return cur + (tgt - cur) * k
@@ -2579,14 +2276,12 @@ function libNyx.UI.SmoothScroll.ApplyToScrollPanel(sp, opts)
     local function ping()
         sp._ss.lastPing = CurTime()
     end
-
     local oldAddScroll = vbar.AddScroll
     vbar.AddScroll = function(self, dlta)
         local m = maxScroll()
         sp._ss.tgt = math.Clamp(sp._ss.tgt + dlta * step, 0, m)
         ping()
     end
-
     local oldOnMousePressed = vbar.OnMousePressed
     vbar.OnMousePressed = function(self, mc)
         sp._ss.drag = true
@@ -2613,7 +2308,6 @@ function libNyx.UI.SmoothScroll.ApplyToScrollPanel(sp, opts)
             ping()
         end
     end
-
     vbar.Paint = function(s, w, h)
         local a = math.floor(130 * sp._ss.visA)
         if a <= 0 then return end
@@ -2631,7 +2325,6 @@ function libNyx.UI.SmoothScroll.ApplyToScrollPanel(sp, opts)
             RNDX.DrawMaterial(r, 0, 0, w, h, g, MAT_GRADIENT_L, 0)
         end
     end
-
     local oldThink = sp.Think
     sp.Think = function(self)
         if isfunction(oldThink) then oldThink(self) end
@@ -2653,7 +2346,6 @@ function libNyx.UI.SmoothScroll.ApplyToScrollPanel(sp, opts)
         sp._ss.visA = expApproach(sp._ss.visA, want, 12)
     end
 end
-
 function libNyx.UI.SmoothScroll.InstallUnder(root, opts)
     if not IsValid(root) then return end
     local function apply(p)
@@ -2670,27 +2362,22 @@ function libNyx.UI.SmoothScroll.InstallUnder(root, opts)
     end
     apply(root)
 end
-
 function libNyx.UI.InstallGlobalScroll(root, opts)
     libNyx.UI.SmoothScroll.InstallUnder(root, opts)
 end
-
 local ny = _G.libNyx or {}
 ny.UI = ny.UI or {}
 _G.libNyx = ny
-
 local function NyScale(n) return (ny.UI.Scale and ny.UI.Scale(n)) or n end
 local function NyFont(sz)  return (ny.UI.Font  and ny.UI.Font(sz))  or "DermaDefault" end
 local function lerpExp(cur, tgt, speed)
     local k = 1 - math.exp(-(speed or 14) * FrameTime())
     return cur + (tgt - cur) * k
 end
-
 ny.__nyxMenuSkinInstalled = ny.__nyxMenuSkinInstalled or false
 function ny.UI.InstallGlobalMenuSkin(opt)
     if ny.__nyxMenuSkinInstalled then return end
     opt = opt or {}
-
     local S = ny.UI.Style or {}
     local radius        = opt.radius        or S.radius or 10
     local fill          = opt.fill          or Color(16,18,24, 210)
@@ -2701,7 +2388,6 @@ function ny.UI.InstallGlobalMenuSkin(opt)
     local blurIntensity = opt.blurIntensity or 1.12
     local fontObj       = opt.font and (type(opt.font)=="function" and opt.font() or opt.font) or NyFont(NyScale(16))
     local padding       = opt.padding       or NyScale(4)
-
     local function styleMenuTable()
         local T = vgui.GetControlTable("DMenu")
         if T then
@@ -2727,7 +2413,6 @@ function ny.UI.InstallGlobalMenuSkin(opt)
                 self:SizeToContents()
             end
         end
-
         local O = vgui.GetControlTable("DMenuOption")
         if O then
             local oldSetText = O.SetText
@@ -2776,10 +2461,8 @@ function ny.UI.InstallGlobalMenuSkin(opt)
     else
         timer.Simple(0, styleMenuTable)
     end
-
     ny.__nyxMenuSkinInstalled = true
 end
-
 if CLIENT and (ny.UI.AutoInstallMenuSkin ~= false) then
     timer.Simple(0, function()
         if _G.libNyx and _G.libNyx.UI and not _G.libNyx.__nyxMenuSkinInstalled then
@@ -2787,24 +2470,20 @@ if CLIENT and (ny.UI.AutoInstallMenuSkin ~= false) then
         end
     end)
 end
-
 do
     local ny = _G.libNyx or {}
     ny.UI = ny.UI or {}
     _G.libNyx = ny
-
     local Style     = ny.UI.Style
     local SCALE     = ny.UI.Scale
     local FONT      = ny.UI.Font
     local DrawPanel = ny.UI.Draw and ny.UI.Draw.Panel
     local DARK      = (Style and (Style.panelColor or Color(20,22,30,130))) or Color(20,22,30,130)
-
     local NOTIFY_GENERIC = _G.NOTIFY_GENERIC or 0
     local NOTIFY_ERROR   = _G.NOTIFY_ERROR   or 1
     local NOTIFY_UNDO    = _G.NOTIFY_UNDO    or 2
     local NOTIFY_HINT    = _G.NOTIFY_HINT    or 3
     local NOTIFY_CLEANUP = _G.NOTIFY_CLEANUP or 4
-
     local ICONS = {
         info   = Material("icon16/information.png","noclamp smooth"),
         ok     = Material("icon16/accept.png","noclamp smooth"),
@@ -2815,7 +2494,6 @@ do
         box    = Material("icon16/box.png","noclamp smooth"),
         star   = Material("icon16/star.png","noclamp smooth"),
     }
-
     local TYPES = {
         [NOTIFY_GENERIC] = { icon = ICONS.info  },
         [NOTIFY_ERROR]   = { icon = ICONS.error },
@@ -2823,16 +2501,13 @@ do
         [NOTIFY_HINT]    = { icon = ICONS.star  },
         [NOTIFY_CLEANUP] = { icon = ICONS.broom },
     }
-
     local function pickIcon(msg, fallback)
         local m = string.lower(tostring(msg or ""))
         if m:find("mail",1,true) or m:find("letter",1,true) or m:find("письм",1,true) then return ICONS.mail end
         if m:find("parcel",1,true) or m:find("package",1,true) or m:find("посылк",1,true) then return ICONS.box end
         return fallback or ICONS.info
     end
-
     ny.UI._Notify = ny.UI._Notify or {}
-
     local function Layer()
         if IsValid(ny.UI._Notify.layer) then return ny.UI._Notify.layer end
         local L = vgui.Create("DPanel")
@@ -2879,7 +2554,6 @@ do
         ny.UI._Notify.layer = L
         return L
     end
-
     local function Toast(text, icon, life)
         local L = Layer()
         local p = vgui.Create("DButton", L)
@@ -2894,17 +2568,14 @@ do
         p._fade   = 0
         p._slide  = 1
         p._spawn  = true
-
         local padX  = SCALE(14)
         local h     = SCALE(40)
         local iconW = SCALE(22)
         local font  = FONT(SCALE(18))
-
         surface.SetFont(font)
         local tw = select(1, surface.GetTextSize(tostring(text or "")))
         local w  = math.Clamp(tw + padX*2 + iconW + SCALE(14), SCALE(220), math.floor(ScrW()*0.5))
         p:SetSize(w, h)
-
         function p:DoClick()
             self._killAt = SysTime() - 0.01
             surface.PlaySound("ui/buttonclickrelease.wav")
@@ -2913,7 +2584,6 @@ do
             self._killAt = SysTime() + 1.2 + self._life*0.25
             surface.PlaySound("buttons/lightswitch2.wav")
         end
-
         p.Think = function(s)
             local now = SysTime()
             local want = (s._killAt or now) > now and 1 or 0
@@ -2925,7 +2595,6 @@ do
                 L:Relayout()
             end
         end
-
         p.Paint = function(s, w, h)
             local a = math.Clamp(s._fade or 0, 0, 1)
             if a <= 0.001 then return end
@@ -2969,29 +2638,24 @@ do
                 surface.DrawTexturedRect(w - padX - ic, (h - ic)/2, ic, ic)
             end
         end
-
         table.insert(L.list, 1, p)
         L:Relayout()
         return p
     end
-
     function ny.UI.PushNotify(msg, typeOrColor, len, icon)
         local t = TYPES[tonumber(typeOrColor) or NOTIFY_GENERIC] or TYPES[NOTIFY_GENERIC]
         local ico = icon or pickIcon(msg, t.icon)
         return Toast(msg, ico, len)
     end
-
     if not ny.UI.__notifySkinInstalled then
         ny.UI.__notifySkinInstalled = true
         ny.UI._origNotification = ny.UI._origNotification or {}
         ny.UI._origNotification.AddLegacy   = notification.AddLegacy
         ny.UI._origNotification.AddProgress = notification.AddProgress
         ny.UI._origNotification.Kill        = notification.Kill
-
         notification.AddLegacy = function(txt, kind, length)
             ny.UI.PushNotify(txt, kind, length)
         end
-
         local progress = {}
         notification.AddProgress = function(id, txt, frac)
             if not IsValid(progress[id]) then
@@ -3014,13 +2678,11 @@ do
             progress[id]._progress = tonumber(frac) or 0
             return id
         end
-
         notification.Kill = function(id)
             local p = progress[id]
             if IsValid(p) then p._killAt = SysTime() - 0.01 end
             progress[id] = nil
         end
-
         local function patchGamemode()
             local gm = gmod and gmod.GetGamemode and gmod.GetGamemode()
             if not gm or gm.__nyxAddNotifyPatched then return end
@@ -3030,33 +2692,26 @@ do
                 ny.UI.PushNotify(txt, kind, length)
             end
         end
-
         timer.Simple(0, patchGamemode)
         hook.Add("OnGamemodeLoaded","libNyx.Notify.PatchGM",patchGamemode)
         hook.Add("DarkRPFinishedLoading","libNyx.Notify.PatchGM",patchGamemode)
     end
-
     function ny.UI.InstallGlobalNotificationSkin()
         Layer()
     end
-
     timer.Simple(0, function()
         if _G.libNyx and _G.libNyx.UI then
             _G.libNyx.UI.InstallGlobalNotificationSkin()
         end
     end)
 end
-
-
 local ny = _G.libNyx or {}
 ny.UI = ny.UI or {}
 _G.libNyx = ny
-
 local STYLE      = ny.UI.Style or {}
 local Components = ny.UI.Components or {}
 local SCALE      = NyScale
 local FONT       = NyFont
-
 local function NyDialogFrame(title, w, h)
     w = w or SCALE(460)
     h = h or SCALE(210)
@@ -3077,7 +2732,6 @@ local function NyDialogFrame(title, w, h)
     if ny.UI.AutoNoBG then ny.UI.AutoNoBG(inner) end
     return f, inner
 end
-
 function ny.UI.CreateMessageBox(opt)
     opt = opt or {}
     local title   = opt.title or ""
@@ -3086,14 +2740,11 @@ function ny.UI.CreateMessageBox(opt)
     local w       = opt.w or SCALE(460)
     local h       = opt.h or SCALE(210)
     local onClick = opt.onClick
-
     local frame, inner = NyDialogFrame(title, w, h)
-
     local top = vgui.Create("DPanel", inner)
     top:Dock(FILL)
     top:DockMargin(0, 0, 0, SCALE(8))
     if ny.UI.AutoNoBG then ny.UI.AutoNoBG(top) end
-
     local lbl = vgui.Create("DLabel", top)
     lbl:Dock(FILL)
     lbl:SetFont(FONT(SCALE(20)))
@@ -3101,12 +2752,10 @@ function ny.UI.CreateMessageBox(opt)
     lbl:SetText(text)
     lbl:SetWrap(true)
     lbl:SetContentAlignment(5)
-
     local btnRow = vgui.Create("DPanel", inner)
     btnRow:Dock(BOTTOM)
     btnRow:SetTall((STYLE.btnHeight or SCALE(44)) + SCALE(4))
     if ny.UI.AutoNoBG then ny.UI.AutoNoBG(btnRow) end
-
     local ok
     if Components.CreateButton then
         ok = Components.CreateButton(btnRow, btnText, {variant = "primary_center"})
@@ -3119,13 +2768,11 @@ function ny.UI.CreateMessageBox(opt)
     local tw = select(1, surface.GetTextSize(btnText))
     ok:SetWide(math.max(SCALE(110), tw + SCALE(40)))
     ok:SetTall(STYLE.btnHeight or SCALE(44))
-
     function ok:DoClick()
         if ny.UI.PlayClick then ny.UI.PlayClick() end
         if isfunction(onClick) then onClick(frame) end
         if frame.Close then frame:Close() else frame:Remove() end
     end
-
     function btnRow:PerformLayout(w, h)
         if not IsValid(ok) then return end
         local bw, bh = ok:GetWide(), ok:GetTall()
@@ -3133,7 +2780,6 @@ function ny.UI.CreateMessageBox(opt)
         local y = math.floor((h - bh) * 0.5)
         ok:SetPos(x, y)
     end
-
     function frame:OnKeyCodePressed(key)
         if key == KEY_ENTER or key == KEY_PAD_ENTER or key == KEY_SPACE then
             if IsValid(ok) then ok:DoClick() end
@@ -3141,10 +2787,8 @@ function ny.UI.CreateMessageBox(opt)
             if self.Close then self:Close() else self:Remove() end
         end
     end
-
     return frame
 end
-
 function ny.UI.CreateInputBox(opt)
     opt = opt or {}
     local title       = opt.title or ""
@@ -3156,14 +2800,11 @@ function ny.UI.CreateInputBox(opt)
     local onCancel    = opt.onCancel
     local w           = opt.w or SCALE(500)
     local h           = opt.h or SCALE(250)
-
     local frame, inner = NyDialogFrame(title, w, h)
-
     local top = vgui.Create("DPanel", inner)
     top:Dock(FILL)
     top:DockMargin(0, 0, 0, SCALE(10))
     if ny.UI.AutoNoBG then ny.UI.AutoNoBG(top) end
-
     local input = vgui.Create("DTextEntry", top)
     input:Dock(BOTTOM)
     input:SetTall(SCALE(34))
@@ -3186,7 +2827,6 @@ function ny.UI.CreateInputBox(opt)
         end
         self:DrawTextEntryText(STYLE.textColor or color_white, Color(255,255,255,25), STYLE.textColor or color_white)
     end
-
     local lbl = vgui.Create("DLabel", top)
     lbl:Dock(FILL)
     lbl:SetFont(FONT(SCALE(20)))
@@ -3195,19 +2835,16 @@ function ny.UI.CreateInputBox(opt)
     lbl:SetWrap(true)
     lbl:SetContentAlignment(5)
     lbl:DockMargin(0, 0, 0, SCALE(6))
-
     local btnRow = vgui.Create("DPanel", inner)
     btnRow:Dock(BOTTOM)
     btnRow:SetTall((STYLE.btnHeight or SCALE(44)) + SCALE(4))
     btnRow:DockMargin(0, SCALE(4), 0, 0)
     if ny.UI.AutoNoBG then ny.UI.AutoNoBG(btnRow) end
-
     surface.SetFont(FONT(SCALE(18)))
     local twOk    = select(1, surface.GetTextSize(confirmText))
     local twCancel= select(1, surface.GetTextSize(cancelText))
     local wOk     = math.max(SCALE(110), twOk + SCALE(40))
     local wCancel = math.max(SCALE(110), twCancel + SCALE(40))
-
     local btnCancel, btnOk
     if Components.CreateButton then
         btnCancel = Components.CreateButton(btnRow, cancelText, {variant = "ghost"})
@@ -3220,35 +2857,29 @@ function ny.UI.CreateInputBox(opt)
         btnOk:SetText(confirmText)
         btnOk:SetFont(FONT(SCALE(18)))
     end
-
     btnCancel:SetWide(wCancel)
     btnOk:SetWide(wOk)
     local btnH = STYLE.btnHeight or SCALE(44)
     btnCancel:SetTall(btnH)
     btnOk:SetTall(btnH)
-
     local function doConfirm()
         local txt = input:GetText() or ""
         if ny.UI.PlayClick then ny.UI.PlayClick() end
         if isfunction(onConfirm) then onConfirm(txt) end
         if frame.Close then frame:Close() else frame:Remove() end
     end
-
     local function doCancel()
         local txt = input:GetText() or ""
         if ny.UI.PlayClick then ny.UI.PlayClick() end
         if isfunction(onCancel) then onCancel(txt) end
         if frame.Close then frame:Close() else frame:Remove() end
     end
-
     function btnOk:DoClick()
         doConfirm()
     end
-
     function btnCancel:DoClick()
         doCancel()
     end
-
     function btnRow:PerformLayout(w, h)
         if not (IsValid(btnOk) and IsValid(btnCancel)) then return end
         local gap   = SCALE(12)
@@ -3259,11 +2890,9 @@ function ny.UI.CreateInputBox(opt)
         x = x + btnCancel:GetWide() + gap
         btnOk:SetPos(x, y)
     end
-
     function input:OnEnter()
         doConfirm()
     end
-
     function frame:OnKeyCodePressed(key)
         if key == KEY_ENTER or key == KEY_PAD_ENTER then
             if IsValid(btnOk) then btnOk:DoClick() end
@@ -3273,20 +2902,16 @@ function ny.UI.CreateInputBox(opt)
             end
         end
     end
-
     timer.Simple(0, function()
         if IsValid(input) then
             input:RequestFocus()
             input:SelectAllText(true)
         end
     end)
-
     return frame, input
 end
-
 local _orig_Derma_Message       = Derma_Message
 local _orig_Derma_StringRequest = Derma_StringRequest
-
 function Derma_Message(text, title, button)
     button = button or "OK"
     if not _G.libNyx or not _G.libNyx.UI or not _G.libNyx.UI.CreateMessageBox then
@@ -3300,7 +2925,6 @@ function Derma_Message(text, title, button)
         buttonText = button
     })
 end
-
 function Derma_StringRequest(title, subtitle, default, confirm, cancel, confirmText, cancelText)
     confirmText = confirmText or "OK"
     cancelText  = cancelText or "Cancel"
@@ -3320,8 +2944,3 @@ function Derma_StringRequest(title, subtitle, default, confirm, cancel, confirmT
     })
     return frame, entry
 end
-
-
--- libNyx by MaryBlackfild
--- JOIN DISCORD: https://discord.gg/rUEEz4mfXw
-
