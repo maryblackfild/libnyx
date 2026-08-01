@@ -1,24 +1,15 @@
--- libNyx by MaryBlackfild
--- JOIN DISCORD: https://discord.gg/rUEEz4mfXw
 
 if SERVER then
     AddCSLuaFile()
     return
 end
 
-local libNyx = libNyx or {}
-libNyx.UI = libNyx.UI or {}
-_G.libNyx = libNyx
+if not libNyx or not libNyx.ui or not libNyx.ui.components then return end
 
-local RNDX = include("libnyx/lib/rndx.lua")
-if not (libNyx.UI and libNyx.UI.Draw and libNyx.UI.Components) then
-    include("libnyx/lib/libnyx_components.lua")
-end
+local style      = libNyx.ui.style
+local components = libNyx.ui.components
 
-local Style      = libNyx.UI.Style
-local Components = libNyx.UI.Components
-
-local GRAD_PALETTE = {
+local gradientPalette = {
     Color( 90,160,255),
     Color(255,125,155),
     Color(120,220,160),
@@ -26,24 +17,24 @@ local GRAD_PALETTE = {
     Color(170,120,255),
     Color(120,200,255),
 }
-local function PalettePick(key)
+local function palettePick(key)
     key = tostring(key or "")
     local sum = 0
     for i = 1, #key do sum = sum + key:byte(i) end
-    local idx = (sum % #GRAD_PALETTE) + 1
-    return GRAD_PALETTE[idx]
+    local idx = (sum % #gradientPalette) + 1
+    return gradientPalette[idx]
 end
 
 local showcase
-function libNyx.UI.OpenShowcase()
+function libNyx.ui.openShowcase()
     if IsValid(showcase) then showcase:Close() end
-    local W = math.min(ScrW() - libNyx.UI.Scale(80), 1200)
-    local H = math.min(ScrH() - libNyx.UI.Scale(80), 780)
-    showcase = libNyx.UI.CreateFrame({w = W, h = H, title = "Демонстрация libNyx UI"})
+    local windowWidth = math.min(ScrW() - libNyx.ui.scale(80), 1200)
+    local windowHeight = math.min(ScrH() - libNyx.ui.scale(80), 780)
+    showcase = libNyx.ui.createFrame({w = windowWidth, h = windowHeight, title = "Демонстрация libNyx UI", blur = true})
 
     local pages = vgui.Create("DPanel", showcase)
     pages:Dock(FILL)
-    pages:DockMargin(Style.padding, Style.padding, Style.padding, Style.padding)
+    pages:DockMargin(style.padding, style.padding, style.padding, style.padding)
     pages.Paint = nil
 
     local page1, page2
@@ -52,7 +43,7 @@ function libNyx.UI.OpenShowcase()
         if IsValid(page2) then page2:SetVisible(which == 2) end
     end
 
-    local nav = Components.CreateTabs(showcase, {
+    local nav = components.createTabs(showcase, {
         items = {
             {id="p1", label="демка 1", icon=Material("icon16/page_white.png","noclamp smooth")},
             {id="p2", label="демка 2", icon=Material("icon16/page_white_text.png","noclamp smooth")},
@@ -61,8 +52,8 @@ function libNyx.UI.OpenShowcase()
         onChange = function(id) showPage(id == "p1" and 1 or 2) end
     })
     nav:Dock(TOP)
-    nav:SetTall(libNyx.UI.Scale(52))
-    nav:DockMargin(Style.headerIndentX, Style.headerIndentY + libNyx.UI.Scale(8), Style.headerIndentX, libNyx.UI.Scale(6))
+    nav:SetTall(libNyx.ui.scale(52))
+    nav:DockMargin(style.headerIndentX, style.headerIndentY + libNyx.ui.scale(8), style.headerIndentX, libNyx.ui.scale(6))
 
 
     page1 = vgui.Create("DPanel", pages)
@@ -73,123 +64,113 @@ function libNyx.UI.OpenShowcase()
 
         local left = vgui.Create("DPanel", page1)
         left:Dock(LEFT)
-        left:SetWide(math.floor(W * 0.40))
-        left.Paint = function(s,w,h)
-            libNyx.UI.Draw.Panel(0,0,w,h,{radius=Style.radius, color=Style.panelColor, glass=true})
-        end
-        left:DockMargin(0, 0, Style.padding, 0)
+        left:SetWide(math.floor(windowWidth * 0.40))
+        left.Paint = nil
+        left:DockMargin(0, 0, style.padding, 0)
 
         local leftStack = vgui.Create("DPanel", left)
         leftStack:Dock(FILL)
-        leftStack:DockPadding(Style.padding, Style.padding, Style.padding, Style.padding)
+        leftStack:DockPadding(style.padding, style.padding, style.padding, style.padding)
         leftStack.Paint = nil
 
         local checksRow = vgui.Create("DPanel", leftStack)
         checksRow:Dock(TOP)
-        checksRow:SetTall(libNyx.UI.Scale(32))
-        checksRow:DockMargin(0, 0, 0, libNyx.UI.Scale(16))
+        checksRow:SetTall(libNyx.ui.scale(32))
+        checksRow:DockMargin(0, 0, 0, libNyx.ui.scale(16))
         checksRow.Paint = nil
 
-        local function addChk(var, text, startOn)
-            local c = Components.CreateCheckbox(checksRow, {
-                variant = var,
-                label   = text,
-                checked = startOn,
-                tint    = Style.accentColor,
-                onChange = function(v)
-                    chat.AddText(Color(0,255,0), "[libNyx] ", Color(255,255,0), text, Color(200,200,200), " = ", v and "ON" or "OFF")
-                end
-            })
-            c:Dock(LEFT)
-            c:DockMargin(0, 0, libNyx.UI.Scale(16), 0)
-            return c
-        end
+        local switch = components.createCheckbox(checksRow, {
+            label = "Switch",
+            checked = true,
+            tint = style.accentColor,
+            onChange = function(value)
+                chat.AddText(
+                    Color(0,255,0),
+                    "[libNyx] ",
+                    Color(255,255,0),
+                    "Switch",
+                    Color(200,200,200),
+                    " = ",
+                    value and "ON" or "OFF"
+                )
+            end
+        })
+        switch:Dock(LEFT)
 
-        addChk("switch", "Switch", true)
-        addChk("knob",   "Knob",   true)
-        addChk("radio",  "Radio",  true)
+        local b1 = components.createButton(leftStack, "Основная",   {variant="primary",   align="left"})
+        b1:Dock(TOP) b1:DockMargin(0, 0, 0, libNyx.ui.scale(10))
 
-        -- buttons
-        local b1 = Components.CreateButton(leftStack, "Основная",   {variant="primary",   align="left"})
-        b1:Dock(TOP) b1:DockMargin(0, 0, 0, libNyx.UI.Scale(10))
+        local b2 = components.createButton(leftStack, "Мягкая",     {variant="soft",      align="left"})
+        b2:Dock(TOP) b2:DockMargin(0, 0, 0, libNyx.ui.scale(10))
 
-        local b2 = Components.CreateButton(leftStack, "Мягкая",     {variant="soft",      align="left"})
-        b2:Dock(TOP) b2:DockMargin(0, 0, 0, libNyx.UI.Scale(10))
+        local b3 = components.createButton(leftStack, "Прозрачная", {variant="ghost",     align="left"})
+        b3:Dock(TOP) b3:DockMargin(0, 0, 0, libNyx.ui.scale(10))
 
-        local b3 = Components.CreateButton(leftStack, "Прозрачная", {variant="ghost",     align="left"})
-        b3:Dock(TOP) b3:DockMargin(0, 0, 0, libNyx.UI.Scale(10))
+        local b4 = components.createButton(leftStack, "Градиентная",{variant="gradient",  align="left", tint = palettePick("btn")})
+        b4:Dock(TOP) b4:DockMargin(0, 0, 0, libNyx.ui.scale(16))
 
-        local b4 = Components.CreateButton(leftStack, "Градиентная",{variant="gradient",  align="left", tint = PalettePick("btn")})
-        b4:Dock(TOP) b4:DockMargin(0, 0, 0, libNyx.UI.Scale(16))
+        local b5 = components.createButton(leftStack, "солид",      {variant="primaryCenter"})
+        b5:Dock(TOP) b5:DockMargin(0, 0, 0, libNyx.ui.scale(10))
 
-        local b5 = Components.CreateButton(leftStack, "солид",      {variant="primary_center"})
-        b5:Dock(TOP) b5:DockMargin(0, 0, 0, libNyx.UI.Scale(10))
-
-        local b6 = Components.CreateButton(leftStack, "Центр-гр",   {variant="center_duo", tint = Color(97,17,191), centerTint = Color(136,49,238)})
+        local b6 = components.createButton(leftStack, "Центр-гр",   {variant="centerDuo", tint = Color(97,17,191), centerTint = Color(136,49,238)})
         b6:Dock(TOP)
-        b6:DockMargin(0, 0, 0, libNyx.UI.Scale(16))
+        b6:DockMargin(0, 0, 0, libNyx.ui.scale(16))
 
-        local sld = Components.CreateSlider(leftStack, {min=1, max=100, value=42, decimals=0, tint=Style.accentColor})
-        sld:Dock(TOP) sld:DockMargin(0, 0, 0, libNyx.UI.Scale(16))
-        sld:SetTall(libNyx.UI.Scale(30))
+        local sld = components.createSlider(leftStack, {min=1, max=100, value=42, decimals=0, tint=style.accentColor})
+        sld:Dock(TOP) sld:DockMargin(0, 0, 0, libNyx.ui.scale(16))
+        sld:SetTall(libNyx.ui.scale(30))
 
-        local dd = Components.CreateDropdown(leftStack, {
+        local dd = components.createDropdown(leftStack, {
             placeholder = "Выберите категорию",
             choices = {"Недвижимость", "Бизнес", "Промо", "VIP"},
             onSelect = function(val) chat.AddText(Color(0,255,0), "[libNyx] Вы выбрали: ", Color(255,255,0), val) end,
-            tint = PalettePick("dropdown")
+            tint = palettePick("dropdown")
         })
-        dd:Dock(TOP) dd:DockMargin(0, 0, 0, libNyx.UI.Scale(8))
-        dd:SetTall(libNyx.UI.Scale(36))
+        dd:Dock(TOP) dd:DockMargin(0, 0, 0, libNyx.ui.scale(8))
+        dd:SetTall(libNyx.ui.scale(36))
 
-        -- bullets
         local feats = {"The libNyx 1.0","Nyx Team топ","бээ-бээ барашек"}
         for _, t in ipairs(feats) do
             local row = vgui.Create("DPanel", leftStack)
             row:Dock(TOP)
-            row:DockMargin(0, 0, 0, libNyx.UI.Scale(8))
-            row:SetTall(libNyx.UI.Scale(30))
+            row:DockMargin(0, 0, 0, libNyx.ui.scale(8))
+            row:SetTall(libNyx.ui.scale(30))
             row.Paint = function(s,w,h)
-                libNyx.UI.Draw.Panel(0,0,w,h,{radius=libNyx.UI.Scale(8), color=Style.cardColor, glass=true})
-                draw.SimpleText("•  "..t, libNyx.UI.Font(libNyx.UI.Scale(18)), libNyx.UI.Scale(8), h/2, Style.textColor, TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER)
+                libNyx.ui.draw.panel(0,0,w,h,{radius=libNyx.ui.scale(8), color=style.cardColor})
+                draw.SimpleText("•  "..t, libNyx.ui.font(libNyx.ui.scale(18)), libNyx.ui.scale(8), h/2, style.textColor, TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER)
             end
         end
 
-        -- right pane
         local right = vgui.Create("DPanel", page1)
         right:Dock(FILL)
-        right.Paint = function(s,w,h)
-            libNyx.UI.Draw.Panel(0,0,w,h,{radius=Style.radius, color=Style.panelColor, glass=true})
-        end
+        right.Paint = nil
 
-        -- bottom boxes strip
         local strip = vgui.Create("DPanel", right)
         strip:Dock(BOTTOM)
-        strip:SetTall(libNyx.UI.Scale(220))
-        strip:DockMargin(Style.padding, 0, Style.padding, Style.padding)
+        strip:SetTall(libNyx.ui.scale(220))
+        strip:DockMargin(style.padding, 0, style.padding, style.padding)
         strip.Paint = nil
 
-        local bx1 = Components.CreateVBox(strip, {variant = "center_gradient", title = "Бокс1", icon = Material("icon16/heart.png"), tint = Color(140,120,255)})
-        bx1:Dock(LEFT); bx1:DockMargin(0,0,Style.padding,0)
+        local bx1 = components.createVBox(strip, {variant = "centerGradient", title = "Бокс1", icon = Material("icon16/heart.png"), tint = Color(140,120,255)})
+        bx1:Dock(LEFT); bx1:DockMargin(0,0,style.padding,0)
 
-        local bx2 = Components.CreateVBox(strip, {variant = "sunburst", title = "Бокс2", icon = Material("icon16/star.png"), tint = Color(255,180,90)})
-        bx2:Dock(LEFT); bx2:DockMargin(0,0,Style.padding,0)
+        local bx2 = components.createVBox(strip, {variant = "sunburst", title = "Бокс2", icon = Material("icon16/star.png"), tint = Color(255,180,90)})
+        bx2:Dock(LEFT); bx2:DockMargin(0,0,style.padding,0)
 
-        local bx3 = Components.CreateVBox(strip, {variant = "model", title = "Бокс3", model = "models/props_c17/oildrum001.mdl", tint = Color(120,200,255)})
-        bx3:Dock(LEFT); bx3:DockMargin(0,0,Style.padding,0)
+        local bx3 = components.createVBox(strip, {variant = "model", title = "Бокс3", model = "models/props_c17/oildrum001.mdl", tint = Color(120,200,255)})
+        bx3:Dock(LEFT); bx3:DockMargin(0,0,style.padding,0)
 
-        local bx4 = Components.CreateVBox(strip, {variant = "vertical_gradient", title = "Бокс4", icon = Material("icon16/flag_yellow.png"), tint = Color(120,180,255)})
+        local bx4 = components.createVBox(strip, {variant = "verticalGradient", title = "Бокс4", icon = Material("icon16/flag_yellow.png"), tint = Color(120,180,255)})
         bx4:Dock(LEFT)
 
-        -- list
-        local list = Components.CreateList(right, {rowHeight = Style.rowHeight, vbarWidth = libNyx.UI.Scale(12)})
+        local list = components.createList(right, {rowHeight = style.rowHeight, vbarWidth = libNyx.ui.scale(12)})
         list:Dock(FILL)
-        list:DockMargin(Style.padding, Style.padding, Style.padding, Style.padding)
+        list:DockMargin(style.padding, style.padding, style.padding, style.padding)
 
         local iconShop = Material("icon16/cart.png")
         local iconHome = Material("icon16/house.png")
 
-        list:AddRow({
+        list:addRow({
             title = "Строка с иконкой и метками",
             icon  = iconShop,
             labels = {
@@ -201,7 +182,7 @@ function libNyx.UI.OpenShowcase()
             onClick   = function() chat.AddText(Color(0,255,0),"[libNyx] Нажата строка 1") end
         })
 
-        list:AddRow({
+        list:addRow({
             title = "Строка без иконки",
             labels = { {text="Скоро", color=Color(170,120,255)} },
             rightText = "Бесплатно",
@@ -209,7 +190,7 @@ function libNyx.UI.OpenShowcase()
             onClick   = function() chat.AddText(Color(0,255,0),"[libNyx] Нажата строка 2 (plain)") end
         })
 
-        list:AddRow({
+        list:addRow({
             title = "Строка с множеством меток",
             icon  = iconHome,
             labels = {
@@ -225,20 +206,20 @@ function libNyx.UI.OpenShowcase()
 
         local inv = vgui.Create("DPanel", right)
         inv:Dock(TOP)
-        inv:SetTall(libNyx.UI.Scale(110))
-        inv:DockMargin(Style.padding, Style.padding, Style.padding, 0)
+        inv:SetTall(libNyx.ui.scale(110))
+        inv:DockMargin(style.padding, style.padding, style.padding, 0)
         inv.Paint = nil
 
-        local invCellA = Components.CreateInteractiveCell(inv, {size=libNyx.UI.Scale(88), tint=Color(140,120,255)})
+        local invCellA = components.createInteractiveCell(inv, {size=libNyx.ui.scale(88), tint=Color(140,120,255)})
         invCellA:Dock(LEFT)
-        invCellA:DockMargin(0,0,Style.padding,0)
+        invCellA:DockMargin(0,0,style.padding,0)
 
-        local invCellB = Components.CreateInteractiveCell(inv, {size=libNyx.UI.Scale(88), tint=Color(120,200,255)})
+        local invCellB = components.createInteractiveCell(inv, {size=libNyx.ui.scale(88), tint=Color(120,200,255)})
         invCellB:Dock(LEFT)
 
-        invCellA:SetItemIcon(
+        invCellA:setItemIcon(
             Material("materials_umbrellyx/moreicons/doughnut-1.png", "noclamp smooth"),
-            libNyx.UI.Scale(40),
+            libNyx.ui.scale(40),
             {
                 title = "Пончик «Глазурь»",
                 desc  = "Сладкий круглый десерт с сахарной глазурью. Даёт +25 к настроению и немного утоляет голод.",
@@ -250,25 +231,16 @@ function libNyx.UI.OpenShowcase()
             }
         )
 
-        -- (optional) leave empty to demo drag-drop target
-        -- if u want a second example, uncomment:
-        -- invCellB:SetItemIcon(Material("icon16/box.png","noclamp smooth"), libNyx.UI.Scale(36), {
-        --     title = "Пустая коробка",
-        --     desc  = "Прочная тара для переноски мелких предметов.",
-        --     tags  = {"Контейнер", {text="Обычный", color=Color(120,200,255)}}
-        -- })
 
     end
 
     page2 = vgui.Create("DPanel", pages)
     page2:Dock(FILL)
     page2:SetVisible(false)
-    page2.Paint = function(s,w,h)
-        libNyx.UI.Draw.Panel(0,0,w,h,{radius=Style.radius, color=Style.panelColor, glass=true})
-    end
+    page2.Paint = nil
 
     do
-        local subnav = Components.CreateTabs(page2, {
+        local subnav = components.createTabs(page2, {
             items = {
                 { id = "stylish",  label = "Стильно",        icon = Material("icon16/page_white_text.png","noclamp smooth") },
                 { id = "pretty",   label = "Красиво",        icon = Material("icon16/newspaper.png","noclamp smooth") },
@@ -283,31 +255,28 @@ function libNyx.UI.OpenShowcase()
             end
         })
         subnav:Dock(TOP)
-        subnav:SetTall(libNyx.UI.Scale(52))
-        subnav:DockMargin(Style.padding, Style.padding, Style.padding, libNyx.UI.Scale(12))
-
-        local content = vgui.Create("DPanel", page2)
-        content:Dock(FILL)
-        content:DockMargin(Style.padding, 0, Style.padding, Style.padding)
-        content.Paint = function(s,w,h)
-            libNyx.UI.Draw.Panel(0,0,w,h,{radius=Style.radius, color=Color(12,14,20,110), glass=true})
-        end
+        subnav:SetTall(libNyx.ui.scale(46))
+        subnav:DockMargin(0, 0, 0, libNyx.ui.scale(6))
 
         local toolbar = vgui.Create("DPanel", page2)
         toolbar:Dock(TOP)
-        toolbar:SetTall(libNyx.UI.Scale(48))
-        toolbar:DockMargin(Style.padding, Style.padding, Style.padding, 0)
+        toolbar:SetTall(libNyx.ui.scale(38))
+        toolbar:DockMargin(0, 0, 0, libNyx.ui.scale(8))
         toolbar.Paint = nil
+
+        local content = vgui.Create("DPanel", page2)
+        content:Dock(FILL)
+        content.Paint = nil
 
         local flow = vgui.Create("DIconLayout", content)
         flow:Dock(FILL)
-        flow:DockMargin(Style.padding, Style.padding, Style.padding, Style.padding)
-        flow:SetSpaceX(Style.padding)
-        flow:SetSpaceY(Style.padding)
+        flow:DockMargin(0, 0, 0, 0)
+        flow:SetSpaceX(style.padding)
+        flow:SetSpaceY(style.padding)
 
         local function cardWidth()
             local w = content:GetWide()
-            return math.max(libNyx.UI.Scale(220), math.floor((w - Style.padding*3) / 2))
+            return math.max(libNyx.ui.scale(220), math.floor((w - style.padding) / 2))
         end
 
         local data = {
@@ -327,16 +296,16 @@ function libNyx.UI.OpenShowcase()
             for _, t in ipairs(data) do
                 local hay = string.lower((t.title or "") .. " " .. (t.desc or ""))
                 if query == "" or string.find(hay, query, 1, true) then
-                    local c = Components.CreateCategoryCard(flow, t)
-                    c:SetSize(cardWidth(), libNyx.UI.Scale(120))
+                    local c = components.createCategoryCard(flow, t)
+                    c:SetSize(cardWidth(), libNyx.ui.scale(120))
                 end
             end
             flow:InvalidateLayout(true)
         end
 
-        local search = Components.CreateSearchBox(toolbar, {
+        local search = components.createSearchBox(toolbar, {
             placeholder = "Поиск…",
-            tint = Style.accentColor,
+            tint = style.accentColor,
             onChange = function(q) renderCards(q) end,
             onSubmit = function(q) renderCards(q) end,
             onClear  = function() renderCards("") end
@@ -346,7 +315,7 @@ function libNyx.UI.OpenShowcase()
         content.OnSizeChanged = function()
             local cw = cardWidth()
             for _, ch in ipairs(flow:GetChildren()) do
-                ch:SetSize(cw, libNyx.UI.Scale(120))
+                ch:SetSize(cw, libNyx.ui.scale(120))
             end
             flow:InvalidateLayout(true)
         end
@@ -357,59 +326,6 @@ function libNyx.UI.OpenShowcase()
     showPage(1)
 end
 
-concommand.Add("libnyx_ui_showcase", function() -- comm to open
-    libNyx.UI.OpenShowcase()
+concommand.Add("libnyx_ui_showcase", function()
+    libNyx.ui.openShowcase()
 end)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
--- libNyx by MaryBlackfild
--- JOIN DISCORD: https://discord.gg/rUEEz4mfXw
