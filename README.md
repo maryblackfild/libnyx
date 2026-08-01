@@ -5,7 +5,7 @@
 ![libNyx demo](libnyx_demo.gif)
 
 <p align="center">
-  <img src="libnyx.png" alt="libNyx logo" height="84" />
+  <img src="stable.png" alt="libNyx screenshot" height="84" />
 </p>
 
 <p align="center">
