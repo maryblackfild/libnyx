@@ -1142,6 +1142,15 @@ function components.createButton(parent, text, opts)
     btn.onClick     = opts.onClick
     btn.tint        = opts.tint
     btn.centerTint  = opts.centerTint or opts.tint2
+
+    function btn:SetText(value)
+        self.text = tostring(value or "")
+    end
+    
+    function btn:GetText()
+        return self.text
+    end
+    
     local gradientLeftMaterial = Material("vgui/gradient-l", "noclamp smooth")
     local gradientRightMaterial = Material("vgui/gradient-r", "noclamp smooth")
     local function lighten(col, k)
